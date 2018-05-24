@@ -217,49 +217,49 @@ def algorithm4(K,B,theta):
     print "Step (2)"
     
     ##Create an empty list to construct the set \mathcal{N} described in step (2)
-    normMultiples=[]
+    possible_norm_set=[]
     
-    ##Use this for loop to build normMultiples
+    ##Use this for loop to build possible_norm_set
     for n in range(h):
         print "n =", n
         
         ##Recalls N(a_n)
         norm=class_group_rep_norms[n]
         
-        ##Use this for loop to add m*norm to normMultiples for every m \leq B
+        ##Use this for loop to add m*norm to possible_norm_set for every m \leq B
         ##range(1,B+1,1)=1,2,...,B
         for m in range(1,B+1,1):
             print "m =",m
             
-            ##Add m*norm to normMultiples
-            normMultiples.append(m*norm)
+            ##Add m*norm to possible_norm_set
+            possible_norm_set.append(m*norm)
             print "Adding ",(m*norm)," to normMultiplies"
             
-    ##normMultiples is now mathcal{N} as described in step (2)
-    print "normMultiples =", normMultiples
+    ##possible_norm_set is now mathcal{N} as described in step (2)
+    print "possible_norm_set =", possible_norm_set
     
     ##Computes a dictionary whos key values (domain) are normMuliples.
-    ##Given a key value v, mathcalP[v] is a collection of generators g
+    ##Given a key value v, bdd_ideals[v] is a collection of generators g
     ##representing a nonzero principal ideal of O_K whos norm is v.
-    mathcalP=bdd_norm_pr_ideal_gens(K,normMultiples)
-    print "mathcalP =", mathcalP
+    bdd_ideals=bdd_norm_pr_ideal_gens(K,possible_norm_set)
+    print "bdd_ideals =", bdd_ideals
 
     ##Create an empty list to store \delta_1-approximations of each generator g.
     ##Will use this to build a dicitonary later
-    approx_lambda_gens_dictionary_builder=[]
+    lambda_gens_approx_builder=[]
     
-    ##Use the following for loop to build approx_lambda_gens_dictionary
-    for norm in normMultiples:
+    ##Use the following for loop to build lambda_gens_approx
+    for norm in possible_norm_set:
         print "norm=",norm
         
         ##Recall the collection of generators who generate ideals of size norm.
-        generators_of_size_norm=mathcalP[norm]
+        generators_of_size_norm=bdd_ideals[norm]
         
         ##Find the number of generators who generate ideals of size norm.
         m=len(generators_of_size_norm)
         print "m=",m
         
-        ##Use the following for loop to build approx_lambda_gens_dictionary
+        ##Use the following for loop to build lambda_gens_approx
         ##for generators who have size norm
         for k in range(m):
             
@@ -271,14 +271,14 @@ def algorithm4(K,B,theta):
             approx_lambda_g=vectorDeltaApproximation(Lambda(gen,K),delta_1)
             print "approx_lambda_g=",approx_lambda_g
             
-            ##Include (gen,approx_lambda_g) in the dictionary approx_lambda_gens_dictionary
-            approx_lambda_gens_dictionary_builder.append((gen,approx_lambda_g))
-            print "Include the pair (",gen,",",approx_lambda_g,") in approx_lambda_gens_dictionary_builder"
+            ##Include (gen,approx_lambda_g) in the dictionary lambda_gens_approx
+            lambda_gens_approx_builder.append((gen,approx_lambda_g))
+            print "Include the pair (",gen,",",approx_lambda_g,") in lambda_gens_approx_builder"
     
-    print "approx_lambda_gens_dictionary_builder=",approx_lambda_gens_dictionary_builder
+    print "lambda_gens_approx_builder=",lambda_gens_approx_builder
     
-    approx_lambda_gens_dictionary=dict(approx_lambda_gens_dictionary_builder)
-    print "approx_lambda_gens_dictionary=",approx_lambda_gens_dictionary
+    lambda_gens_approx=dict(lambda_gens_approx_builder)
+    print "lambda_gens_approx=",lambda_gens_approx
     
     ##
     ##
@@ -288,14 +288,14 @@ def algorithm4(K,B,theta):
     
     print "Step (3)"
     
-    ##An empty list where we would like boundedGenerators[n] to be the generators g in mathcalP
+    ##An empty list where we would like generator_lists[n] to be the generators g in bdd_ideals
     ##where (g)\subset a_n whos norms are at norm B*N(a_n)
-    boundedGenerators=[]
+    generator_lists=[]
     
-    ##An empty list where we would like s[n] to the the number of things in boundedGenerators[n]
+    ##An empty list where we would like s[n] to the the number of things in generator_lists[n]
     s=[]
     
-    ##Use the for loop to build boundedGenerators and s.
+    ##Use the for loop to build generator_lists and s.
     for l in range(h):
         print "l =",l
         
@@ -303,19 +303,19 @@ def algorithm4(K,B,theta):
         ideal = class_group_reps[l]
         print "ideal =",ideal
         
-        ##Create an empty list to build boundedGenerators[l]
+        ##Create an empty list to build generator_lists[l]
         sublist=[]
         
         ##Use the for loop to build sublist.
-        for norm in normMultiples:
+        for norm in possible_norm_set:
             print "norm =", norm
             
-            ##If norm \leq B*N(a_l), then everything in mathcalP[norm] will have size
+            ##If norm \leq B*N(a_l), then everything in bdd_ideals[norm] will have size
             ##less than B*N(a_l)
             if norm <= B*class_group_rep_norms[l]:
                 
-                ##Add everything in mathcalP[norm] to sublist
-                for g in mathcalP[norm]:
+                ##Add everything in bdd_ideals[norm] to sublist
+                for g in bdd_ideals[norm]:
                     sublist.append(g)
         
         ##Find the size of sublist
@@ -326,12 +326,12 @@ def algorithm4(K,B,theta):
         s.append(sublist_length)
         print "Adding ",sublist_length, "to s"
         
-        ##Add sublist to boundedGenerators
-        boundedGenerators.append(sublist)
-        print "Adding ", sublist , " to boundedGenerators"
+        ##Add sublist to generator_lists
+        generator_lists.append(sublist)
+        print "Adding ", sublist , " to generator_lists"
     
     print "s=", s
-    print "boundedGenerators =", boundedGenerators
+    print "generator_lists =", generator_lists
     
     ##Input: alpha!=0 and beta!=0 in the number field K with llambda>0
     ##Output: A llambda approximation of h_K(alpha/beta)
@@ -372,7 +372,7 @@ def algorithm4(K,B,theta):
             ##i=0,...,j-1
             for i in range(j):
                 ##Check to see if (g_li,g_lj)=a_l
-                if O_K.ideal(boundedGenerators[l][i],boundedGenerators[l][j])==class_group_reps[l]:
+                if O_K.ideal(generator_lists[l][i],generator_lists[l][j])==class_group_reps[l]:
                     relevant_pairs_l.append([i,j])
         print "relevant_pairs_l =",relevant_pairs_l
         
@@ -416,8 +416,8 @@ def algorithm4(K,B,theta):
         for p in relevant_pairs[n]:
             i=p[0]
             j=p[1]
-            gni=boundedGenerators[n][i]
-            gnj=boundedGenerators[n][j]
+            gni=generator_lists[n][i]
+            gnj=generator_lists[n][j]
             
             ##Computes what r_nij can be and stores it
             logHeightQuotientApproximation[n][i][j]=relativeLogHeightQuotient(gni,gnj,t/6)
@@ -702,9 +702,9 @@ def algorithm4(K,B,theta):
         log_norm_approx=class_group_rep_norm_log_approx[n]
         print "log_norm_approx=",log_norm_approx
         ##COmpute lambda(gli) and lambda(glj)
-        lambda_gni=approx_lambda_gens_dictionary[boundedGenerators[n][i]]
+        lambda_gni=lambda_gens_approx[generator_lists[n][i]]
         print "lambda_gni=",lambda_gni
-        lambda_gnj=approx_lambda_gens_dictionary[boundedGenerators[n][j]]
+        lambda_gnj=lambda_gens_approx[generator_lists[n][j]]
         print "lambda_gnj=",lambda_gnj
         ##compute lambdaTildeu
         lambdaTildeu=lambda_tilde_dictionary[u]
@@ -728,8 +728,8 @@ def algorithm4(K,B,theta):
         product=1
         for k in range(r):
             product=product*fund_units[k]^u[k]
-        numerator=product*boundedGenerators[l][i]
-        return relativeLogHeightQuotient(numerator,boundedGenerators[l][j],t/3)
+        numerator=product*generator_lists[l][i]
+        return relativeLogHeightQuotient(numerator,generator_lists[l][j],t/3)
     
     ##
     ##
@@ -859,7 +859,7 @@ def algorithm4(K,B,theta):
         i=pair[0]
         j=pair[1]
         u=P[2]
-        c_P=tuples_to_unit_dictionary[u] * (boundedGenerators[n][i]/boundedGenerators[n][j])
+        c_P=tuples_to_unit_dictionary[u] * (generator_lists[n][i]/generator_lists[n][j])
         for root in roots:
             LL.append(root*c_P)
             LL.append(root/c_P)
@@ -872,7 +872,7 @@ def algorithm4(K,B,theta):
         i=pair[0]
         j=pair[1]
         u=P[2]
-        c_P=tuples_to_unit_dictionary[u] * (boundedGenerators[n][i]/boundedGenerators[n][j])
+        c_P=tuples_to_unit_dictionary[u] * (generator_lists[n][i]/generator_lists[n][j])
         for root in roots:
             LPrimed.append(root*c_P)
             LPrimed.append(root/c_P)

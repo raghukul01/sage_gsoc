@@ -83,7 +83,10 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
 	B = height_bound
 	theta = tolerance
+	embeddings = K.places(prec=precision)
 
+	# #CHECK there is some difference between this implementation 
+	# and notebook implementation
 	def rational_in(x,y):
 		r"""
 		Computes a rational number q, such that x<q<y using Archimedes' axiom
@@ -111,6 +114,26 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 		for i in range(n):
 			w.append(delta_approximation(v[i],delta))
 		return w
+
+	def log_map(number):
+	    r"""
+	    Computes the image of an element of `K` under the logarithmic map.
+	    """
+	    x = number
+	    x_logs = []
+	    for i in range(r1):
+	        sigma = embeddings[i] # real embeddings
+	        x_logs.append(abs(sigma(x)).log())
+	    for i in range(r1, r + 1):
+	        tau = embeddings[i] # Complex embeddings
+	        x_logs.append(2*abs(tau(x)).log())
+	    return vector(x_logs)
+
+	def relative_height_log_approx(a,b,lambda):
+		r"""
+		Computes the rational approximation of logarithmic height function
+		
+		"""
 
 	# ignore if not needed
 	# def lambda(x,K):
@@ -150,7 +173,40 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     	class_group_rep_norms.append(a_norm)
     	class_group_rep_norm_log_approx.append(log_norm_approx)
     h = len(class_group_reps) # Replace this by a better name (maybe class_number) #TODO
-    
 
+    # Step 2
 
+    # Find generators for principal ideals of bounded norm
+    possible_norm_set = set([])
+    for n in range(h): # replace this h with better name #TODO
+        for m in range(1,B+1):
+            possible_norm_set.add(m*class_group_rep_norms[n])
+    bdd_ideals = bdd_norm_pr_ideal_gens(K, possible_norm_set)
 
+    # Find the delta_1 approximation of lambda (used log_map() instead) #CHECK
+    # stores it in form of an dictionary and gives lambda(g)_approx for key g 
+    lambda_gens_approx = dict()
+    for norm in possible_norm_set:
+    	gens = bdd_ideals[norm]
+    	for g in gens:
+    		lambda_g_approx = vector_delta_approximation(log_map(g),delta_1)
+    		lambda_gens_approx[g] = lambda_g_approx
+
+    # Step 3
+    # Find a list of all generators corresponding to each ideal a_l
+    # list s stores the count of generators corresponding to a_l
+    # #TODO remove this s if not needed
+    s = []
+    generator_lists = []
+	for l in range(h): # replace this h with better name #TODO
+		this_ideal = class_group_reps[l]
+		this_ideal_norm = class_group_rep_norms[l]
+		gens = []
+		for i in range(1, B + 1):
+		    for g in bdd_ideals[i*this_ideal_norm]:
+		        if g in this_ideal:
+		            gens.append(g)
+		s.append(len(gens))
+		generator_lists.append(gens)
+
+	# Step 4
