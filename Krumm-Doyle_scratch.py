@@ -162,33 +162,33 @@ def algorithm4(K,B,theta):
     
     ##Computes a complete set of ideal class representatives {a_1,...,a_h}
     ##Uses a previously defined function to do the computation
-    classRepresentatives=completeSetOfIdealClassRepresentatives(K)
-    print "classRepresentatives =",classRepresentatives
+    class_group_reps=completeSetOfIdealClassRepresentatives(K)
+    print "class_group_reps =",class_group_reps
     
     ##This is the definition of h in step (1)
     ##This is the number of ideal class representatives
-    h=len(classRepresentatives)
+    h=len(class_group_reps)
     print "There are ", h , " class representatives."
     
     ##Creates an empty list to store the \delta_1-approximations of \log(N(a_n))
-    approx_log_norm_class_rep=[]
+    class_group_rep_norm_log_approx=[]
     
     ##Creates an empty list to store the norm of each ideal (a_n)
-    ##Will have norm_class_rep[n]=N(a_n)
-    norm_class_rep=[]
+    ##Will have class_group_rep_norms[n]=N(a_n)
+    class_group_rep_norms=[]
     
-    ##Will use this for loop to fill in approx_log_norm_class_rep and norm_class_rep
+    ##Will use this for loop to fill in class_group_rep_norm_log_approx and class_group_rep_norms
     for n in range(h):
         print "n =", n
         
         ##Computes the norm of (a_n)
         ##Is the norm exact??
-        norm=classRepresentatives[n].norm()
+        norm=class_group_reps[n].norm()
         print "norm=",norm
         
-        ##Adds norm to norm_class_rep
-        norm_class_rep.append(norm)
-        print "Adding ", norm , " to norm_class_rep"
+        ##Adds norm to class_group_rep_norms
+        class_group_rep_norms.append(norm)
+        print "Adding ", norm , " to class_group_rep_norms"
         
         ##Computes log(N(a_n))
         log_norm=log(norm,hold=True)
@@ -198,15 +198,15 @@ def algorithm4(K,B,theta):
         approx_log_norm=deltaApproximation(log_norm,delta_1)
         print "approx_log_norm=", approx_log_norm
         
-        ##Add approx_log_norm to approx_log_norm_class_rep
-        approx_log_norm_class_rep.append(approx_log_norm)
-        print "Adding ", approx_log_norm , " to approx_log_norm_class_rep"
+        ##Add approx_log_norm to class_group_rep_norm_log_approx
+        class_group_rep_norm_log_approx.append(approx_log_norm)
+        print "Adding ", approx_log_norm , " to class_group_rep_norm_log_approx"
     
-    ##norm_class_rep now has the property that norm_class_rep[n]=N(a_n)
-    print "norm_class_rep=",norm_class_rep
+    ##class_group_rep_norms now has the property that class_group_rep_norms[n]=N(a_n)
+    print "class_group_rep_norms=",class_group_rep_norms
     
-    ##approx_log_norm_class_rep[n] is \delta_1-approximation of \log(N(a_n))
-    print "approx_log_norm_class_rep =", approx_log_norm_class_rep
+    ##class_group_rep_norm_log_approx[n] is \delta_1-approximation of \log(N(a_n))
+    print "class_group_rep_norm_log_approx =", class_group_rep_norm_log_approx
     
     ##
     ##
@@ -224,7 +224,7 @@ def algorithm4(K,B,theta):
         print "n =", n
         
         ##Recalls N(a_n)
-        norm=norm_class_rep[n]
+        norm=class_group_rep_norms[n]
         
         ##Use this for loop to add m*norm to normMultiples for every m \leq B
         ##range(1,B+1,1)=1,2,...,B
@@ -300,7 +300,7 @@ def algorithm4(K,B,theta):
         print "l =",l
         
         ##Recall the ideal a_l
-        ideal = classRepresentatives[l]
+        ideal = class_group_reps[l]
         print "ideal =",ideal
         
         ##Create an empty list to build boundedGenerators[l]
@@ -312,7 +312,7 @@ def algorithm4(K,B,theta):
             
             ##If norm \leq B*N(a_l), then everything in mathcalP[norm] will have size
             ##less than B*N(a_l)
-            if norm <= B*norm_class_rep[l]:
+            if norm <= B*class_group_rep_norms[l]:
                 
                 ##Add everything in mathcalP[norm] to sublist
                 for g in mathcalP[norm]:
@@ -372,7 +372,7 @@ def algorithm4(K,B,theta):
             ##i=0,...,j-1
             for i in range(j):
                 ##Check to see if (g_li,g_lj)=a_l
-                if O_K.ideal(boundedGenerators[l][i],boundedGenerators[l][j])==classRepresentatives[l]:
+                if O_K.ideal(boundedGenerators[l][i],boundedGenerators[l][j])==class_group_reps[l]:
                     relevant_pairs_l.append([i,j])
         print "relevant_pairs_l =",relevant_pairs_l
         
@@ -699,7 +699,7 @@ def algorithm4(K,B,theta):
         j=pair[1]
         u=P[2]
         ##Compute log norm
-        log_norm_approx=approx_log_norm_class_rep[n]
+        log_norm_approx=class_group_rep_norm_log_approx[n]
         print "log_norm_approx=",log_norm_approx
         ##COmpute lambda(gli) and lambda(glj)
         lambda_gni=approx_lambda_gens_dictionary[boundedGenerators[n][i]]

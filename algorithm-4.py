@@ -1,4 +1,4 @@
-def bdd_height(K, height_bound, tolerance=1e-5):
+def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	r"""
 	Computes all elements in the number field `K` which have relative
     multiplicative height at most ``height_bound``.
@@ -22,6 +22,7 @@ def bdd_height(K, height_bound, tolerance=1e-5):
 
     - ``height_bound`` - real number
     - ``tolerance`` - a rational number in (0,1]
+    - ``precision`` - (default: 53) positive integer
 
 	OUTPUT:
 	- an iterator of number field elements
@@ -123,15 +124,33 @@ def bdd_height(K, height_bound, tolerance=1e-5):
 	O_K = K.ring_of_integers()
 	r1, r2 = K.signature(); r = r1 + r2 -1
 	fund_units = UnitGroup(K).fundamental_units()
+	RF = RealField(precision)
 
-r"""
+	r"""
 	need to add support when r = 0
 	case I: when it is imagenary quadratic field
 		this case is done bdd_height_iq() function exists
 	case II: when it is field of rational numbers (Q)
 		need to discuss this #TODO
-"""
+	"""
 
 	# Step 1
-	t = theta / (3*B)
-	delta_1 = t / (6*r+12)
+	delta_1 = (theta/(3*B)) / (6*r+12)
+
+	class_group_reps = []
+    class_group_rep_norms = []
+    class_group_rep_norm_log_approx = []
+
+    for c in K.class_group():
+    	a = c.representative_prime() # in algorithm 3 this is replaced by .ideal() #CHECK
+    	a_norm = a.norm()
+    	log_norm = RF(a_norm).log()
+    	log_norm_approx = delta_approximation(log_norm,delta_1)
+    	class_group_reps.append(a)
+    	class_group_rep_norms.append(a_norm)
+    	class_group_rep_norm_log_approx.append(log_norm_approx)
+    h = len(class_group_reps) # Replace this by a better name (maybe class_number) #TODO
+    
+
+
+
