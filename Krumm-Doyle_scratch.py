@@ -336,7 +336,7 @@ def algorithm4(K,B,theta):
     ##Input: alpha!=0 and beta!=0 in the number field K with llambda>0
     ##Output: A llambda approximation of h_K(alpha/beta)
     ##Information in lemma 4.1
-    def relativeLogHeightQuotient(alpha,beta,llambda):
+    def log_height_for_generators_approx(alpha,beta,llambda):
         dellta=llambda/(r+2)
         nTilde=deltaApproximation(log(O_K.ideal(alpha,beta).norm(),hold=True),dellta)
         s=vectorDeltaApproximation(Lambda(alpha,K),dellta)
@@ -420,7 +420,7 @@ def algorithm4(K,B,theta):
             gnj=generator_lists[n][j]
             
             ##Computes what r_nij can be and stores it
-            logHeightQuotientApproximation[n][i][j]=relativeLogHeightQuotient(gni,gnj,t/6)
+            logHeightQuotientApproximation[n][i][j]=log_height_for_generators_approx(gni,gnj,t/6)
 
     print "logHeightQuotientApproximation=",logHeightQuotientApproximation
     
@@ -729,7 +729,7 @@ def algorithm4(K,B,theta):
         for k in range(r):
             product=product*fund_units[k]^u[k]
         numerator=product*generator_lists[l][i]
-        return relativeLogHeightQuotient(numerator,generator_lists[l][j],t/3)
+        return log_height_for_generators_approx(numerator,generator_lists[l][j],t/3)
     
     ##
     ##

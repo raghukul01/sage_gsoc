@@ -1,3 +1,7 @@
+from sage.rings.all import RR
+from sage.rings.number_field.bdd_height import bdd_norm_pr_ideal_gens
+from sage.rings.number_field.bdd_height import integer_points_in_polytope
+
 def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	r"""
 	Computes all elements in the number field `K` which have relative
@@ -84,6 +88,10 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	B = height_bound
 	theta = tolerance
 	embeddings = K.places(prec=precision)
+	O_K = K.ring_of_integers()
+	r1, r2 = K.signature(); r = r1 + r2 -1
+	fund_units = UnitGroup(K).fundamental_units()
+	RF = RealField(precision)
 
 	# #CHECK there is some difference between this implementation 
 	# and notebook implementation
@@ -91,11 +99,12 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 		r"""
 		Computes a rational number q, such that x<q<y using Archimedes' axiom
 		"""
-		n = (1/(y-x)).ceil() + 1
-		if (n*y).ceil() is n*y:
+		z = y - x
+		n = RR(1/z).ceil() + 1
+		if RR(n*y).ceil() is n*y:
 			m = n*y - 1
 		else:
-			m = (n*y).floor()
+			m = RR(n*y).floor()
 		return m/n
 
 	def delta_approximation(x,delta):
@@ -129,11 +138,17 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	        x_logs.append(2*abs(tau(x)).log())
 	    return vector(x_logs)
 
-	def relative_height_log_approx(a,b,lambda):
+	def log_height_for_generators_approx(alpha,beta,Lambda):
 		r"""
 		Computes the rational approximation of logarithmic height function
-		
+		Returns a lambda approximation h_K(alpha/beta) using lemma 4.1
 		"""
+		delta = Lambda / (r+2)
+		norm_log = delta_approximation(RR(O_K.ideal(alpha,beta).norm()).log(),delta)
+		log_ga = vector_delta_approximation(log_map(alpha),delta)
+		log_gb = vector_delta_approximation(log_map(beta),delta)
+		arch_sum = sum([max(log_ga[k], log_gb[k]) for k in range(r + 1)])
+		return (arch_sum - norm_log)
 
 	# ignore if not needed
 	# def lambda(x,K):
@@ -144,10 +159,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
 
 	# start of main algorithm
-	O_K = K.ring_of_integers()
-	r1, r2 = K.signature(); r = r1 + r2 -1
-	fund_units = UnitGroup(K).fundamental_units()
-	RF = RealField(precision)
+	
 
 	r"""
 	need to add support when r = 0
@@ -158,7 +170,8 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	"""
 
 	# Step 1
-	delta_1 = (theta/(3*B)) / (6*r+12)
+	t = theta / (3*B)
+	delta_1 = t / (6*r+12)
 
 	class_group_reps = []
     class_group_rep_norms = []
@@ -193,6 +206,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     		lambda_gens_approx[g] = lambda_g_approx
 
     # Step 3
+
     # Find a list of all generators corresponding to each ideal a_l
     # list s stores the count of generators corresponding to a_l
     # #TODO remove this s if not needed
@@ -210,3 +224,22 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 		generator_lists.append(gens)
 
 	# Step 4
+
+	# Finds all relevent pair which satisfy 4(a)
+	gen_height_approx_dictionary = dict() # stores height for further use
+    relevant_pair_lists = []
+
+    for n in range(h): # replace h with better name #TODO
+    	relevent_pairs = []
+    	gens = generator_lists[n]
+    	l = len(gens)
+    	for i in range(l):
+    		for j in range(i+1,l):
+    			if K.ideal(gens[i], gens[j]) == class_group_reps[n]:
+    				relevent_pairs.append([i,j])
+    				gen_height_approx_dictionary[(n,i,j)] = log_height_for_generators_approx(gens[i],gens[j],t/6)
+    	relevant_pair_lists.append(relevent_pairs)
+
+    # Step 5
+
+    
