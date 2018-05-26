@@ -273,7 +273,9 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
 	# Step 8
 	# Computes the matrix S_tilde which consist of delta_2 approximation of lambda_tilde(epsilon_i)
-	S_tilde
+	fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i],delta_2) for i in range(r)]
+	S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
+	S_tilde_inverse = S_tilde.inverse()
 
 
 
