@@ -598,13 +598,13 @@ def algorithm4(K,B,theta):
     U0=[]
     
     ##This is the set U_0' in the paper
-    U0Primed=[]
+    U0_tilde=[]
     
     ##This is the set L_0 in the paper
     L0=[]
     
     ##This is the set L_0' in the paper
-    L0Primed=[]
+    L0_tilde=[]
     
     ##
     ##
@@ -680,7 +680,7 @@ def algorithm4(K,B,theta):
             
         ##Do step (11)(d)
         if b-(5/12)*t <= height_u and height_u < b+(1/12)*t:
-            U0Primed.append(u)
+            U0_tilde.append(u)
             
         ##Do step (11)(e)
         if height_u > (t/12)+d_tilde:
@@ -689,7 +689,7 @@ def algorithm4(K,B,theta):
     ##This is r_u in the paper
     print "log_height_units_dictionary=",log_height_units_dictionary
     print "U0=",U0
-    print "U0Primed=",U0Primed
+    print "U0_tilde=",U0_tilde
     print "U=",U
     
     def packet_height_approx(P):
@@ -764,10 +764,10 @@ def algorithm4(K,B,theta):
                         
                     ##Do step 12(d)
                     if b-(7/12)*t<r_P and r_P<b+(1/4)*t:
-                        L0Primed.append(P)
+                        L0_tilde.append(P)
     
     print "L0=",L0
-    print "L0Primed=",L0Primed
+    print "L0_tilde=",L0_tilde
     
     ##
     ##
@@ -777,12 +777,12 @@ def algorithm4(K,B,theta):
     
     print "Step 13"
     
-    ##Make an empty list to store distinct tuples in U0, U0Primed, or in some
-    ##Packet P in L0 or L0Primed.
+    ##Make an empty list to store distinct tuples in U0, U0_tilde, or in some
+    ##Packet P in L0 or L0_tilde.
     relevant_tuples=[]
     
-    ##Append everything in U0 and U0Primed.  This won't have copies because they are disjoint.
-    relevant_tuples=U0+U0Primed
+    ##Append everything in U0 and U0_tilde.  This won't have copies because they are disjoint.
+    relevant_tuples=U0+U0_tilde
     
     ##Look for distinct tuples in L0
     print "Searching for relevant tuples in L0"
@@ -792,9 +792,9 @@ def algorithm4(K,B,theta):
             print "Appending ",u," to relevant_tuples"
             relevant_tuples.append(u)
             
-    ##Look for distinct tuples in L0Primed
-    print "Searching for relevant tuples in L0Primed"
-    for P in L0Primed:
+    ##Look for distinct tuples in L0_tilde
+    print "Searching for relevant tuples in L0_tilde"
+    for P in L0_tilde:
         u=P[2]
         if u not in relevant_tuples:
             print "Appending ",u," to relevant_tuples"
@@ -841,7 +841,7 @@ def algorithm4(K,B,theta):
     
     LPrimed=[]
     
-    for u in U0Primed:
+    for u in U0_tilde:
         for root in roots:
             LPrimed.append(root*tuples_to_unit_dictionary[u])
             
@@ -866,7 +866,7 @@ def algorithm4(K,B,theta):
     
     print "LL=",LL
     
-    for P in L0Primed:
+    for P in L0_tilde:
         n=P[0]
         pair=P[1]
         i=pair[0]

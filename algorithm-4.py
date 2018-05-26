@@ -4,6 +4,11 @@ from sage.rings.number_field.bdd_height import integer_points_in_polytope
 
 def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	r"""
+
+	Currently all values are stored in a list and then in the end 
+	we use the function iter(list) to generate an iterator 
+	Update this functionality in docstring #TODO
+ 
 	Computes all elements in the number field `K` which have relative
     multiplicative height at most ``height_bound``.
 
@@ -281,4 +286,11 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	# Computes a list of all integers in the polytope
 	U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
 
+	# step 10
+	# Initializes the list which needs to be computed
+	LL = [K(0)]
+	U0 = []
+	U0_tilde = []
+	L0 = []
+	L0_tilde = []
 
