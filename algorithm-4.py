@@ -277,6 +277,8 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
 	S_tilde_inverse = S_tilde.inverse()
 
-
+	# Step 9
+	# Computes a list of all integers in the polytope
+	U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
 
 
