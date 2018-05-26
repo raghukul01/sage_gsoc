@@ -486,9 +486,9 @@ def algorithm4(K,B,theta):
     ##Now maximum is the largest value of gen_height_approx_dictionary over all relevant_pair_lists.
     print "maximum=",maximum
     
-    ##Set dTilde to be the value defined in the paper in step (5)
-    dTilde=b+t/6+maximum
-    print "dTilde=",dTilde
+    ##Set d_tilde to be the value defined in the paper in step (5)
+    d_tilde=b+t/6+maximum
+    print "d_tilde=",d_tilde
     
     ##
     ##
@@ -520,25 +520,25 @@ def algorithm4(K,B,theta):
     print "Step 7"
     
     ##Define lamdaTilde as described in step (7)
-    lambdaTilde=(t/12)/(dTilde*r*(1+upper_bound))
-    print "lambdaTilde=",lambdaTilde
+    lambda_tilde=(t/12)/(d_tilde*r*(1+upper_bound))
+    print "lambda_tilde=",lambda_tilde
     
-    ##Define deltaTilde as described in step (7)
-    deltaTilde=min(lambdaTilde/(r^2*(upper_bound^2+upper_bound*lambdaTilde)),1/(r^2))
-    print "deltaTilde=",deltaTilde
+    ##Define delta_tilde as described in step (7)
+    delta_tilde=min(lambda_tilde/(r^2*(upper_bound^2+upper_bound*lambda_tilde)),1/(r^2))
+    print "delta_tilde=",delta_tilde
     
     ##Define M as described in step (7)
-    M=dTilde*(upper_bound+lambdaTilde*sqrt(r))
+    M=d_tilde*(upper_bound+lambda_tilde*sqrt(r))
     print "M=",M
     M=ceil(M)
     print "M=",M
     
-    ##Define delta2 as described in step (7)
+    ##Define delta_2 as described in step (7)
     if M==0:
-        delta2 = deltaTilde
+        delta_2 = delta_tilde
     else:
-        delta2=min(deltaTilde,(t/6)/(r*(r+1)*M))
-    print "delta2=",delta2
+        delta_2=min(delta_tilde,(t/6)/(r*(r+1)*M))
+    print "delta_2=",delta_2
     
     ##
     ##
@@ -554,7 +554,7 @@ def algorithm4(K,B,theta):
     ##Use the for loop to build v
     for i in range(r):
         ##LambdaPrimed is Lambda with the last coordinate deleted
-        v.append(vectorDeltaApproximation(Lambda(fund_units[i],K),delta2))
+        v.append(vectorDeltaApproximation(Lambda(fund_units[i],K),delta_2))
     print "v=",v
     
     matrix_builder=[]
@@ -579,8 +579,8 @@ def algorithm4(K,B,theta):
     
     print "Step 9"
     
-    ##This computes all integers in the polytope STildeInverse([-dTilde,dTilde]^r)
-    U=integer_points_in_polytope(STildeInverse,dTilde)
+    ##This computes all integers in the polytope STildeInverse([-d_tilde,d_tilde]^r)
+    U=integer_points_in_polytope(STildeInverse,d_tilde)
     print "U=",U
     
     ##
@@ -616,7 +616,7 @@ def algorithm4(K,B,theta):
     
     ##Build a list so that we can define a dictionary with key values u \in U
     ##which store the data from (11)(a)
-    LambdaTildeU=[]
+    Lambda_tildeU=[]
     for u in U:
         print "u=",u
         list=[]
@@ -629,12 +629,12 @@ def algorithm4(K,B,theta):
             print "value=",value
             value=value+u[j]*vector(v[j])
         list.append(value)
-        LambdaTildeU.append(list)
-    print "LambdaTildeU=",LambdaTildeU
+        Lambda_tildeU.append(list)
+    print "Lambda_tildeU=",Lambda_tildeU
     
     ##Computes a dictionary.  Has the property that if u \in U, then
     ##lambda_tilde_dictionary[u] is the sum described in step (11)(a)
-    lambda_tilde_dictionary=dict(LambdaTildeU)
+    lambda_tilde_dictionary=dict(Lambda_tildeU)
     print "lambda_tilde_dictionary=",lambda_tilde_dictionary
 
     
@@ -683,7 +683,7 @@ def algorithm4(K,B,theta):
             U0Primed.append(u)
             
         ##Do step (11)(e)
-        if height_u > (t/12)+dTilde:
+        if height_u > (t/12)+d_tilde:
             U.remove(u)
     
     ##This is r_u in the paper
@@ -706,10 +706,10 @@ def algorithm4(K,B,theta):
         print "lambda_gni=",lambda_gni
         lambda_gnj=lambda_gens_approx[generator_lists[n][j]]
         print "lambda_gnj=",lambda_gnj
-        ##compute lambdaTildeu
-        lambdaTildeu=lambda_tilde_dictionary[u]
-        print "lambdaTildeu=",lambdaTildeu
-        lambda_u_gni=vector(lambda_gni)+lambdaTildeu
+        ##compute lambda_tildeu
+        lambda_tildeu=lambda_tilde_dictionary[u]
+        print "lambda_tildeu=",lambda_tildeu
+        lambda_u_gni=vector(lambda_gni)+lambda_tildeu
         print "lambda_u_gni=",lambda_u_gni
         arch_sum=0
         for k in xrange(r+1):

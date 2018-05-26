@@ -240,7 +240,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     	relevant_pair_lists.append(relevant_pairs)
 
     # Step 5
-    # Computes the value of b, d_tilde which is need in further steps
+    # Computes the value of b, d_ which is need in further steps
     b = rational_in(t/12 + RR(B).log(), t/4 + RR(B).log())
     maximum = 0
    	for n in range(h): # replace with a better name #TODO
@@ -261,5 +261,20 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
 	upper_bound = (r^2) * max(S_norm,S_inverse_norm)
 	upper_bound = RR(upper_bound).ceil() + 1
+
+	# Step 7
+	# Computes some constants which will be used further for approximation
+	# Due to Computation with float() these values differ from notebook values #CHECK
+	lambda_tilde = (t/12) / (d_tilde*r*(1+m))
+	delta_tilde = min(lambda_tilde/((r^2)*((m^2)+m*lambda_tilde)), 1/(r^2))
+	M = d_tilde * (upper_bound+lambda_tilde*RR(r).sqrt())
+	M = RR(M).ceil()
+	delta_2 = min(delta_tilde,(t/6)/(r*(r+1)*M))
+
+	# Step 8
+	# Computes the matrix S_tilde which consist of delta_2 approximation of lambda_tilde(epsilon_i)
+	S_tilde
+
+
 
 
