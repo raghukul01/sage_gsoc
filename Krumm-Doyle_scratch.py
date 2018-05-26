@@ -354,33 +354,33 @@ def algorithm4(K,B,theta):
     
     print "Step 4"
     
-    ##Define an empty list.  This list will have the property that relevant_pairs[n]=R_n as described in step (4)(b)
-    relevant_pairs=[]
+    ##Define an empty list.  This list will have the property that relevant_pair_lists[n]=R_n as described in step (4)(b)
+    relevant_pair_lists=[]
     
-    ##Use the following for loop to build relevant_pairs
+    ##Use the following for loop to build relevant_pair_lists
     for l in range(h):
         print "l =",l
         
-        ##Make an empty list to build relevant_pairs[l]
-        relevant_pairs_l=[]
+        ##Make an empty list to build relevant_pair_lists[l]
+        relevant_pair_lists_l=[]
         
-        ##Use the following for loop to build relevant_pairs_l
+        ##Use the following for loop to build relevant_pair_lists_l
         ##Everytime there is 0 \leq i < j \leq s[l]-1 with (g_li,g_lj)=a_l, 
-        ##append (i,j) to relevant_pairs_l
+        ##append (i,j) to relevant_pair_lists_l
         ##j=1,2,...,s[l]-1
         for j in range(1,s[l],1):
             ##i=0,...,j-1
             for i in range(j):
                 ##Check to see if (g_li,g_lj)=a_l
                 if O_K.ideal(generator_lists[l][i],generator_lists[l][j])==class_group_reps[l]:
-                    relevant_pairs_l.append([i,j])
-        print "relevant_pairs_l =",relevant_pairs_l
+                    relevant_pair_lists_l.append([i,j])
+        print "relevant_pair_lists_l =",relevant_pair_lists_l
         
-        ##Add relevant_pairs_l to relevant_pairs
-        relevant_pairs.append(relevant_pairs_l)
-        print "Appending ",relevant_pairs_l, " to relevant_pairs"
+        ##Add relevant_pair_lists_l to relevant_pair_lists
+        relevant_pair_lists.append(relevant_pair_lists_l)
+        print "Appending ",relevant_pair_lists_l, " to relevant_pair_lists"
         
-    print "relevant_pairs=",relevant_pairs
+    print "relevant_pair_lists=",relevant_pair_lists
     
     ##
     ##Now we will build a container to store the data for step 12(b)
@@ -390,15 +390,15 @@ def algorithm4(K,B,theta):
     imax=0;
     jmax=0;
     for n in range(h):
-        for p in relevant_pairs[n]:
+        for p in relevant_pair_lists[n]:
             imax=max(p[0],imax)
             jmax=max(p[1],jmax)
     print "imax =",imax
     print "jmax =",jmax
     
     ##Build a h by imax by jmax "cube" where all entries are zero.
-    logHeightQuotientApproximation=[[[0]*(jmax+1) for i in range(imax+1)] for j in range(h)]
-    print "logHeightQuotientApproximation=",logHeightQuotientApproximation
+    gen_height_approx_dictionary=[[[0]*(jmax+1) for i in range(imax+1)] for j in range(h)]
+    print "gen_height_approx_dictionary=",gen_height_approx_dictionary
     
     ##
     ##This is the end of building the container to store the data for step 12(b)
@@ -407,22 +407,22 @@ def algorithm4(K,B,theta):
     ##where we built a container is uncessessary.
     ##
     
-    ##Use the for loop to store data from step 12(b) into logHeightQuotientApproximation with the
-    ##property that logHeightQuotientApproximation[n][i][j]=r_nij where r_nij is described in the paper
+    ##Use the for loop to store data from step 12(b) into gen_height_approx_dictionary with the
+    ##property that gen_height_approx_dictionary[n][i][j]=r_nij where r_nij is described in the paper
     ##in step 12(b)
     for n in range(h):
         print "n=",n
 
-        for p in relevant_pairs[n]:
+        for p in relevant_pair_lists[n]:
             i=p[0]
             j=p[1]
             gni=generator_lists[n][i]
             gnj=generator_lists[n][j]
             
             ##Computes what r_nij can be and stores it
-            logHeightQuotientApproximation[n][i][j]=log_height_for_generators_approx(gni,gnj,t/6)
+            gen_height_approx_dictionary[n][i][j]=log_height_for_generators_approx(gni,gnj,t/6)
 
-    print "logHeightQuotientApproximation=",logHeightQuotientApproximation
+    print "gen_height_approx_dictionary=",gen_height_approx_dictionary
     
     ##
     ##
@@ -439,7 +439,7 @@ def algorithm4(K,B,theta):
     ##Here we will initialize maximum to be one of the values of r_nij.
     
     ##Initialized maximum
-    ##At the end, we want this to be the max value of logHeightQuotientApproximation over all relevant_pairs
+    ##At the end, we want this to be the max value of gen_height_approx_dictionary over all relevant_pair_lists
     maximum=0;
     
     ##Define maximumInitialized to be False.  When we redefine maximum, we will set this to True
@@ -449,17 +449,17 @@ def algorithm4(K,B,theta):
     ##The while loop will end one we have set maximum to a new value.
     for n in range(h):
             
-        ##If relevant_pairs[l] isn't empty, do the following things
-        if len(relevant_pairs[n])!=0:
+        ##If relevant_pair_lists[l] isn't empty, do the following things
+        if len(relevant_pair_lists[n])!=0:
                 
-            ##Set p to be the first pair in relevant_pairs[l]
-            p=relevant_pairs[n][0]
+            ##Set p to be the first pair in relevant_pair_lists[l]
+            p=relevant_pair_lists[n][0]
                 
             i=p[0]
             j=p[1]
                 
             ##Redefine maximum
-            maximum=logHeightQuotientApproximation[n][i][j]
+            maximum=gen_height_approx_dictionary[n][i][j]
             print "Initial Maximum =",maximum
                 
             ##Say that we have found something to set maximum to.
@@ -469,21 +469,21 @@ def algorithm4(K,B,theta):
             ##ends the for loop
             break
     
-    ##Now we want to find the maximum value of logHeightQuotientApproximation over all relevant_pairs
+    ##Now we want to find the maximum value of gen_height_approx_dictionary over all relevant_pair_lists
     if maximumInitialized==True:
         ##We will use the for loop to make maximum as large as possible.
         for l in range(h):
-            for p in relevant_pairs[l]:
+            for p in relevant_pair_lists[l]:
                 i=p[0]
                 j=p[1]
 
                 ##Update the maximum value.
-                maximum=max(maximum,logHeightQuotientApproximation[l][i][j])
+                maximum=max(maximum,gen_height_approx_dictionary[l][i][j])
     ##maximumInitialized==False if and only if R[n] is empty for all n
     else:
         maximum=0
     
-    ##Now maximum is the largest value of logHeightQuotientApproximation over all relevant_pairs.
+    ##Now maximum is the largest value of gen_height_approx_dictionary over all relevant_pair_lists.
     print "maximum=",maximum
     
     ##Set dTilde to be the value defined in the paper in step (5)
@@ -742,12 +742,12 @@ def algorithm4(K,B,theta):
     ##Use this for loop to fill out packet_height_dictionary and to do steps (c) and (d)
     for l in range(h):
         print "l=",l
-        for p in relevant_pairs[l]:
+        for p in relevant_pair_lists[l]:
             i=p[0]
             j=p[1]
             
             ##Define w as defined in the paper on step (12)
-            w=b+logHeightQuotientApproximation[l][i][j]+t/4
+            w=b+gen_height_approx_dictionary[l][i][j]+t/4
             for u in U:
                 ##Check to see if r_u<w.
                 if log_height_units_dictionary[u]<w:
@@ -905,16 +905,16 @@ def algorithm4(K,B,theta):
     # This is where the function _packet_height is called... to build the list of packets L0.
     ## We need to make this Algorithm 4 friendly
     for n in xrange(h):
-        relevant_pairs = relevant_pairs[n]
-        for pair in relevant_pairs:
+        relevant_pair_lists = relevant_pair_lists[n]
+        for pair in relevant_pair_lists:
             i = pair[0] ; j = pair[1]
 
             ##u_height_bound =
 
 
     for n in xrange(h):
-        relevant_pairs = relevant_pair_lists[n]
-        for pair in relevant_pairs:
+        relevant_pair_lists = relevant_pair_lists[n]
+        for pair in relevant_pair_lists:
             i = pair[0] ; j = pair[1]
             gen_height = gen_height_dictionary[(n, i, j)]
             u_height_bound = logB + gen_height

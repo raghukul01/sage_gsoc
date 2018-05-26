@@ -147,7 +147,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 		norm_log = delta_approximation(RR(O_K.ideal(alpha,beta).norm()).log(),delta)
 		log_ga = vector_delta_approximation(log_map(alpha),delta)
 		log_gb = vector_delta_approximation(log_map(beta),delta)
-		arch_sum = sum([max(log_ga[k], log_gb[k]) for k in range(r + 1)])
+		arch_sum = sum([max(log_ga[k], log_gb[k]) for k in range(r + 1)]) # In notebook, sum is till r, #CHECK
 		return (arch_sum - norm_log)
 
 	# ignore if not needed
@@ -230,16 +230,22 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     relevant_pair_lists = []
 
     for n in range(h): # replace h with better name #TODO
-    	relevent_pairs = []
+    	relevant_pairs = []
     	gens = generator_lists[n]
     	l = len(gens)
     	for i in range(l):
     		for j in range(i+1,l):
     			if K.ideal(gens[i], gens[j]) == class_group_reps[n]:
-    				relevent_pairs.append([i,j])
+    				relevant_pairs.append([i,j])
     				gen_height_approx_dictionary[(n,i,j)] = log_height_for_generators_approx(gens[i],gens[j],t/6)
-    	relevant_pair_lists.append(relevent_pairs)
+    	relevant_pair_lists.append(relevant_pairs)
 
     # Step 5
+    # Computes the value of b, d_tilde which is need in further steps
+    b = rational_in(t/12 + RR(B).log(), t/4 + RR(B).log())
+    maximum = 0
+   	for n in range(h): # replace with a better name #TODO
+   		for p in relevant_pair_lists[n]:
+   			maximum = max(maximum,gen_height_approx_dictionary[(n,p[0],p[1])])
+   	d_tilde = b + t/6 + maximum
 
-    
