@@ -90,7 +90,6 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	embeddings = K.places(prec=precision)
 	O_K = K.ring_of_integers()
 	r1, r2 = K.signature(); r = r1 + r2 -1
-	fund_units = UnitGroup(K).fundamental_units()
 	RF = RealField(precision)
 
 	# #CHECK there is some difference between this implementation 
@@ -248,4 +247,19 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
    		for p in relevant_pair_lists[n]:
    			maximum = max(maximum,gen_height_approx_dictionary[(n,p[0],p[1])])
    	d_tilde = b + t/6 + maximum
+
+   	# Step 6
+   	# computes fundamental units and their value under log map 
+   	# computes the matix S(epsilon)
+   	# computes the constant m (upper_bound) which will be used further
+	fund_units = UnitGroup(K).fundamental_units()
+	fund_unit_logs = [log_map(fund_units[i]) for i in range(r)]
+	S = column_matrix(fund_unit_logs).delete_rows([r])
+	S_inverse = S.inverse()
+	S_norm = S.norm(Infinity)
+	S_inverse_norm = S_inverse.norm(Infinity)
+
+	upper_bound = (r^2) * max(S_norm,S_inverse_norm)
+	upper_bound = RR(upper_bound).ceil() + 1
+
 
