@@ -96,6 +96,9 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	O_K = K.ring_of_integers()
 	r1, r2 = K.signature(); r = r1 + r2 -1
 	RF = RealField(precision)
+    lambda_gens_approx = dict()
+    class_group_rep_norm_log_approx = []
+    unit_log_dict = dict()
 
 	# #CHECK there is some difference between this implementation 
 	# and notebook implementation
@@ -154,6 +157,17 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 		arch_sum = sum([max(log_ga[k], log_gb[k]) for k in range(r + 1)]) # In notebook, sum is till r, #CHECK
 		return (arch_sum - norm_log)
 
+	def packet_height(n, pair, u):
+	    r"""
+	    Computes the height of the element of `K` encoded by a given packet.
+	    """
+	    gens = generator_lists[n]
+	    i = pair[0] ; j = pair[1]
+	    Log_gi = lambda_gens_approx[gens[i]]; Log_gj = lambda_gens_approx[gens[j]]
+	    Log_u_gi = vector(Log_gi) + unit_log_dict[u]
+	    arch_sum = sum([max(Log_u_gi[k], Log_gj[k]) for k in range(r + 1)])
+	    return (arch_sum - class_group_rep_norm_log_approx[n])
+
 	# ignore if not needed
 	# def lambda(x,K):
 	# 	r"""
@@ -179,7 +193,6 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
 	class_group_reps = []
     class_group_rep_norms = []
-    class_group_rep_norm_log_approx = []
 
     for c in K.class_group():
     	a = c.representative_prime() # in algorithm 3 this is replaced by .ideal() #CHECK
@@ -202,7 +215,6 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
     # Find the delta_1 approximation of lambda (used log_map() instead) #CHECK
     # stores it in form of an dictionary and gives lambda(g)_approx for key g 
-    lambda_gens_approx = dict()
     for norm in possible_norm_set:
     	gens = bdd_ideals[norm]
     	for g in gens:
@@ -297,7 +309,6 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	# Step 11
 	# Computes the vector sum(n_j*v_j) in unit_log_dict
 	# COmputes the height of newly created unit and stores in unit_height_dict
-    unit_log_dict = dict()
     unit_height_dict = dict()
     U_copy = copy(U)
     inter_bound = b - (5*t)/12
@@ -316,6 +327,21 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 		if u_height > t/12 + d_tilde:
 		    U_copy.remove(u)
 	U = U_copy
+
+	#Step 12
+	# check for relevant packets
+	for n in range(h):
+		for pair in relevant_pair_lists[n]:
+			i = pair[0]; j = pair[1]
+			u_height_bound = b + gen_height_approx_dictionary[(n,i,j)] + t/4
+			for u in U:
+				if unit_height_dict[u] < u_height_bound:
+					candidate_height = packet_height(n,pair,u)
+					if candidate_height <= b - (7/12)*t:
+						L0.append([n,pair,u])
+					if candidate_height > b - (7/12)*t and candidate_height < b + t/4:
+						U0_tilde.append([n,pair,u])
+
 
 		
 	
