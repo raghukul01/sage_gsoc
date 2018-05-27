@@ -286,11 +286,37 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 	# Computes a list of all integers in the polytope
 	U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
 
-	# step 10
+	# Step 10
 	# Initializes the list which needs to be computed
 	LL = [K(0)]
 	U0 = []
 	U0_tilde = []
 	L0 = []
 	L0_tilde = []
+
+	# Step 11
+	# Computes the vector sum(n_j*v_j) in unit_log_dict
+	# COmputes the height of newly created unit and stores in unit_height_dict
+    unit_log_dict = dict()
+    unit_height_dict = dict()
+    U_copy = copy(U)
+    inter_bound = b - (5*t)/12
+
+    for u in U:    
+        u_log = sum([u[j]*vector(fund_unit_log_approx[j]) for j in range(r)])
+		unit_log_dict[u] = u_log
+		u_height = sum([max(u_log[k], 0) for k in range(r + 1)])
+		# Calculation of u_height differ from what done in notebook #CHECK
+		unit_height_dict[u] = u_height
+	
+		if u_height < inter_bound:
+	            U0.append(u)
+		if inter_bound <= u_height and u_height < b - (t/12):
+		    U0_tilde.append(u)
+		if u_height > t/12 + d_tilde:
+		    U_copy.remove(u)
+	U = U_copy
+
+		
+	
 

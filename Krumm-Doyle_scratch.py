@@ -633,9 +633,9 @@ def algorithm4(K,B,theta):
     print "Lambda_tildeU=",Lambda_tildeU
     
     ##Computes a dictionary.  Has the property that if u \in U, then
-    ##lambda_tilde_dictionary[u] is the sum described in step (11)(a)
-    lambda_tilde_dictionary=dict(Lambda_tildeU)
-    print "lambda_tilde_dictionary=",lambda_tilde_dictionary
+    ##unit_log_dict[u] is the sum described in step (11)(a)
+    unit_log_dict=dict(Lambda_tildeU)
+    print "unit_log_dict=",unit_log_dict
 
     
     ##Input: An element u of U
@@ -660,19 +660,19 @@ def algorithm4(K,B,theta):
         return output
     
     ##Create an empty dictionary to store the data generated from rr(u)
-    log_height_units_dictionary={}
+    unit_height_dict={}
     
     ##Make a copy of U.  We do this because as we do a loop over U, we are going to want to remove things from U.
     copyU=copy(U)
     
-    ##Use the for loop to build log_height_units_dictionary and to do steps (c)(d)(e)
+    ##Use the for loop to build unit_height_dict and to do steps (c)(d)(e)
     for u in copyU:
         
         ##Compute rr(u)
         height_u=rr(u)
         
         ##Include the pair (u,height_u) in the dictionary for future
-        log_height_units_dictionary.update({u:height_u})
+        unit_height_dict.update({u:height_u})
         
         ##Do step (11)(c)
         if height_u<b-(5/12)*t:
@@ -687,7 +687,7 @@ def algorithm4(K,B,theta):
             U.remove(u)
     
     ##This is r_u in the paper
-    print "log_height_units_dictionary=",log_height_units_dictionary
+    print "unit_height_dict=",unit_height_dict
     print "U0=",U0
     print "U0_tilde=",U0_tilde
     print "U=",U
@@ -707,7 +707,7 @@ def algorithm4(K,B,theta):
         lambda_gnj=lambda_gens_approx[generator_lists[n][j]]
         print "lambda_gnj=",lambda_gnj
         ##compute lambda_tildeu
-        lambda_tildeu=lambda_tilde_dictionary[u]
+        lambda_tildeu=unit_log_dict[u]
         print "lambda_tildeu=",lambda_tildeu
         lambda_u_gni=vector(lambda_gni)+lambda_tildeu
         print "lambda_u_gni=",lambda_u_gni
@@ -750,7 +750,7 @@ def algorithm4(K,B,theta):
             w=b+gen_height_approx_dictionary[l][i][j]+t/4
             for u in U:
                 ##Check to see if r_u<w.
-                if log_height_units_dictionary[u]<w:
+                if unit_height_dict[u]<w:
                     
                     ##Step 12(a), Define a packet
                     P=[l,[i,j],u]
