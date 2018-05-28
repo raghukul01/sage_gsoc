@@ -2,13 +2,8 @@ from sage.rings.all import RR
 from sage.rings.number_field.bdd_height import bdd_norm_pr_ideal_gens
 from sage.rings.number_field.bdd_height import integer_points_in_polytope
 
-def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
-    r"""
-
-    Currently all values are stored in a list and then in the end 
-    we use the function iter(list) to generate an iterator 
-    Update this functionality in docstring #TODO
- 
+def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+    r""" 
     Computes all elements in the number field `K` which have relative
     multiplicative height at most ``height_bound``.
 
@@ -16,11 +11,12 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     rank. An error will occur if `K` is `QQ` or an imaginary quadratic field.
 
     This algorithm computes 2 list: L containing elements x in `K` such that
-    H_k(x) <= B, and a list L' containing elements x in `K` such that 
+    H_k(x) <= B, and a list L' containing elements x in `K` such that
     abs(H_k(x) - B) < tolerance.
 
     In current implementation both lists (L,L') are merged and returned in
     form of iterator.
+
 
     ALGORITHM:
 
@@ -92,13 +88,15 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
 
         sage: from sage.rings.number_field.bdd_height import bdd_height
         sage: K.<v> = NumberField(x^3 + x + 1)
-        sage: len(list(bdd_height(K,3,1e-5)))
+        sage: len(list(bdd_height(K,3)))
         23
     """
 
     # global values, used in internal function
     B = height_bound
     theta = tolerance
+    if B < 1:
+        return
     embeddings = K.places(prec=precision)
     O_K = K.ring_of_integers()
     r1, r2 = K.signature(); r = r1 + r2 -1
@@ -112,7 +110,10 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
         Computes a rational number q, such that x<q<y using Archimedes' axiom
         """
         z = y - x
-        n = RR(1/z).ceil() + 1
+        if z == 0:
+            n = 1
+        else:
+            n = RR(1/z).ceil() + 1
         if RR(n*y).ceil() is n*y:
             m = n*y - 1
         else:
@@ -189,7 +190,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
         class_group_reps.append(a)
         class_group_rep_norms.append(a_norm)
         class_group_rep_norm_log_approx.append(log_norm_approx)
-    class_number = len(class_group_reps) # Replace this by a better name (maybe class_number) #TODO
+    class_number = len(class_group_reps)
 
 
     # Find generators for principal ideals of bounded norm
@@ -242,7 +243,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
             maximum = max(maximum,gen_height_approx_dictionary[(n,p[0],p[1])])
     d_tilde = b + t/6 + maximum
 
-    # computes fundamental units and their value under log map 
+    # computes fundamental units and their value under log map
     fund_units = UnitGroup(K).fundamental_units()
     fund_unit_logs = [log_map(fund_units[i]) for i in range(r)]
     S = column_matrix(fund_unit_logs).delete_rows([r])
@@ -251,7 +252,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     S_inverse_norm = S_inverse.norm(Infinity)
 
     upper_bound = (r^2) * max(S_norm,S_inverse_norm)
-    upper_bound = RR(upper_bound).ceil() + 1
+    m = RR(upper_bound).ceil() + 1
 
     # Variables needed for rational approximation
     lambda_tilde = (t/12) / (d_tilde*r*(1+m))
