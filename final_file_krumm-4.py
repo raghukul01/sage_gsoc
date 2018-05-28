@@ -96,7 +96,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
     B = height_bound
     theta = tolerance
     if B < 1:
-        return
+        return iter([])
     embeddings = K.places(prec=precision)
     O_K = K.ring_of_integers()
     r1, r2 = K.signature(); r = r1 + r2 -1
