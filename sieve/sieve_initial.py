@@ -1,3 +1,5 @@
+from sage.rings.all import RR
+
 def sieve(X, bound=0):
 	r"""
 	Returns the list of all rational points on given subscheme (`X`).
@@ -49,6 +51,15 @@ def sieve(X, bound=0):
 
 			M = matrix(ZZ, N+2, N+1, m)
 			A = M.LLL()
+			point = list(A[1])
+
+			# check if all coordinates of this point satisfy bound
+			bound_satisfied = true
+			for coordinate in point:
+				if RR(coordinate).abs() > bound:
+					bound_satisfied = false
+			if not bound_satisfied:
+				continue
 
 			try:
 				rat_points.add(Z(list(A[1]))) # checks if this point lies on Z or not
