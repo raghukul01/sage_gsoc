@@ -1,0 +1,1 @@
+# input can be normalized using normalize_input() function in decorate.py
