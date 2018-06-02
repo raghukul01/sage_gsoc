@@ -31,13 +31,31 @@ used_primes
 
 #######################################
 
+# use of xmrange function
+t = [1,2,3]
+for v in xmrange(t):
+    print v
+
+# output
+r"""
+[0, 0, 0]
+[0, 0, 1]
+[0, 0, 2]
+[0, 1, 0]
+[0, 1, 1]
+[0, 1, 2]
+"""
+
+#######################################
+
+
 %time
 def sieve(X, primes, bound):
     P = X.ambient_space()
     N = P.dimension()
     B = (2**(N/4+1)*bound**2*sqrt(N+1)).n()
     L=[]
-    #this part is best done in parrellel - maybe later improvement...
+    #this part is best done in parallel - maybe later improvement...
     for p in primes:
         Xp=X.change_ring(GF(p))
         L.append(Xp.rational_points())
@@ -51,11 +69,14 @@ def sieve(X, primes, bound):
         print "bad",B
     
     rat_points=set()
-    count_lifted=0  
+    count_lifted=0 
     for v in xmrange(t):
         point=[]
         for k in range(N+1):
+            # crt function returns the solution to simultaneous congruent equations via chinese remainder theorem
+            # references can be found: http://doc.sagemath.org/html/en/reference/rings_standard/sage/arith/misc.html
             point.append(crt([L[j][v[j]][k].lift() for j in range(len(primes))],primes))
+            # lift function reference http://doc.sagemath.org/html/en/reference/misc/sage/misc/functional.html
         count_lifted+=1
         m=[]
         for i in range(N+1):

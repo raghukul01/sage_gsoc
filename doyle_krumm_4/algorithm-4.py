@@ -276,14 +276,14 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     S_norm = S.norm(Infinity)
     S_inverse_norm = S_inverse.norm(Infinity)
 
-    upper_bound = (r^2) * max(S_norm,S_inverse_norm)
+    upper_bound = (r**2) * max(S_norm,S_inverse_norm)
     upper_bound = RR(upper_bound).ceil() + 1
 
     # Step 7
     # Computes some constants which will be used further for approximation
     # Due to Computation with float() these values differ from notebook values #CHECK
     lambda_tilde = (t/12) / (d_tilde*r*(1+m))
-    delta_tilde = min(lambda_tilde/((r^2)*((m^2)+m*lambda_tilde)), 1/(r^2))
+    delta_tilde = min(lambda_tilde/((r**2)*((m**2)+m*lambda_tilde)), 1/(r**2))
     M = d_tilde * (upper_bound+lambda_tilde*RR(r).sqrt())
     M = RR(M).ceil()
     delta_2 = min(delta_tilde,(t/6)/(r*(r+1)*M))
@@ -353,7 +353,7 @@ def bdd_height(K, height_bound, tolerance=1e-5, precision=53):
     for u in relevant_tuples:
         unit = K(1)
         for k in range(r):
-            unit *= (fund_units[k]^u[k])
+            unit *= (fund_units[k]**u[k])
         tuple_to_unit_dict[u] = unit
 
     # Step 14
