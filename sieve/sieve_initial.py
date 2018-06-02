@@ -1,4 +1,6 @@
 from sage.rings.all import RR
+from sage.parallel.ncpus import ncpus
+from sage.parallel.use_fork import p_iter_fork
 
 def sieve(X, bound=0):
 	r"""
@@ -19,59 +21,76 @@ def sieve(X, bound=0):
 			prod_primes *= p
 		return primes
 
-	def sieve_util(Z, primes, bound):
+	def parallel_function(X, p):
 		r"""
-		Returns the rational point on subscheme `Z` using the sieve algorithm
+		function to be used in parallel computation,
+		returns a list of all rational points in modulo ring
 		"""
-		P = Z.ambient_space()
-		N = P.dimension()
+		Xp = X.change_ring(GF(p))
+		L = Xp.rational_points()
 
-		modulo_points = []
+		return [list(_) for _ in L]
+
+	def points_modulo_primes(X, primes):
+		r"""
+		Return a list of rational points modulo all p in primes
+		parallel implementation
+		"""
+		normalized_input = []
 		for p in primes:
-			ring_modulo_p = Z.change_ring(GF(p))
-			# find rational point modulo given primes
-			modulo_points.append(ring_modulo_p.rational_points())
+			normalized_input.append(((X, p, ), {}))
+		p_iter = p_iter_fork(ncpus())
 
-		len_modulo_points = [len(_) for _ in modulo_points]
-		len_primes = len(primes)
-		prod_primes = prod(primes)
+		points_pair = list(p_iter(parallel_function, normalized_input))
+		points_pair.sort()
+		modulo_points = []
+		for pair in points_pair:
+		    modulo_points.append(pair[1])
 
-		rat_points = set()
-
-		for tupl in xmrange(len_modulo_points):
-			point = []
-			for k in range(N + 1):
-				# list all dimensions of given point using chinese remainder theorem
-				point.append( crt([ modulo_points[j][tupl[j]][k].lift() for j in range(len_primes) ], primes) )
-			m = point
-			for i in range(N + 1):
-				w = [0 for _ in range(N+1)]
-				w[i] = prod_primes
-				m.extend(w)
-
-			M = matrix(ZZ, N+2, N+1, m)
-			A = M.LLL()
-			point = list(A[1])
-
-			# check if all coordinates of this point satisfy bound
-			bound_satisfied = true
-			for coordinate in point:
-				if RR(coordinate).abs() > bound:
-					bound_satisfied = false
-			if not bound_satisfied:
-				continue
-
-			try:
-				rat_points.add(Z(list(A[1]))) # checks if this point lies on Z or not
-			except:
-				pass
-
-		return list(rat_points)
+		return modulo_points
 
 	# start of main algorithm
-	N = X.ambient_space().dimension()
 
+	P = X.ambient_space()
+	N = P.dimension()
+
+	# bound as per preposition - 4, in preperiodic points paper
 	B = (2**(N/4+1)*bound**2*sqrt(N+1)).n()
-	p = sufficient_primes(B.ceil())
+	primes = sufficient_primes(B.ceil())
 
-	return sieve_util(X, p, bound)
+	modulo_points = points_modulo_primes(X,primes)
+	len_modulo_points = [len(_) for _ in modulo_points]
+	len_primes = len(primes)
+	prod_primes = prod(primes)
+
+	rat_points = set()
+
+	for tupl in xmrange(len_modulo_points):
+		point = []
+		for k in range(N + 1):
+			# list all dimensions of given point using chinese remainder theorem
+			point.append( crt([ modulo_points[j][tupl[j]][k].lift() for j in range(len_primes) ], primes) )
+		m = point
+		for i in range(N + 1):
+			w = [0 for _ in range(N+1)]
+			w[i] = prod_primes
+			m.extend(w)
+
+		M = matrix(ZZ, N+2, N+1, m)
+		A = M.LLL()
+		point = list(A[1])
+
+		# check if all coordinates of this point satisfy bound
+		bound_satisfied = true
+		for coordinate in point:
+			if RR(coordinate).abs() > bound:
+				bound_satisfied = false
+		if not bound_satisfied:
+			continue
+
+		try:
+			rat_points.add(X(list(A[1]))) # checks if this point lies on Z or not
+		except:
+			pass
+
+	return list(rat_points)

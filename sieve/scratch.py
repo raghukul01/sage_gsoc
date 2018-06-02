@@ -1,5 +1,7 @@
 %time
 m=[]
+
+
 for i in range(N+1):
     w=[0 for j in range(N)]
     w.insert(i,D)
