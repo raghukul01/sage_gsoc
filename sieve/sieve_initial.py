@@ -93,4 +93,4 @@ def sieve(X, bound=0):
 		except:
 			pass
 
-	return list(rat_points)
+	return sorted(list(rat_points))

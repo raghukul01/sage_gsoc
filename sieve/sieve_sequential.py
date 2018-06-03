@@ -54,19 +54,22 @@ def sieve(X, bound=0):
 			point = list(A[1])
 
 			# check if all coordinates of this point satisfy bound
-			bound_satisfied = true
-			for coordinate in point:
-				if RR(coordinate).abs() > bound:
-					bound_satisfied = false
-			if not bound_satisfied:
-				continue
 
 			try:
 				rat_points.add(X(list(A[1]))) # checks if this point lies on Z or not
 			except:
 				pass
+		final_points = []
+		for point in rat_points:
+			bound_satisfied = true
+			for coordinate in point:
+				if RR(coordinate).abs() > bound:
+					bound_satisfied = false
+			if bound_satisfied:
+				final_points.append(point)
 
-		return list(rat_points)
+
+		return list(final_points)
 
 	# start of main algorithm
 	N = X.ambient_space().dimension()
