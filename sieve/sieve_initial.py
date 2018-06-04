@@ -65,16 +65,22 @@ def sieve(X, bound=0):
 
 	rat_points = set()
 
+	# list which stores entries needed to form matrix
+	m = [0 for _ in range(N + 1)]
+
+	for i in range(N + 1):
+		w = [0 for _ in range(N+1)]
+		w[i] = prod_primes
+		m.extend(w)
+
 	for tupl in xmrange(len_modulo_points):
 		point = []
 		for k in range(N + 1):
 			# list all dimensions of given point using chinese remainder theorem
 			point.append( crt([ modulo_points[j][tupl[j]][k].lift() for j in range(len_primes) ], primes) )
-		m = point
-		for i in range(N + 1):
-			w = [0 for _ in range(N+1)]
-			w[i] = prod_primes
-			m.extend(w)
+		
+		for i in range(N+1):
+			m[i] = point[i]
 
 		M = matrix(ZZ, N+2, N+1, m)
 		A = M.LLL()
