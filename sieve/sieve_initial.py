@@ -21,6 +21,40 @@ def sieve(X, bound=0):
 			prod_primes *= p
 		return primes
 
+	def good_primes(B, N):
+		r"""
+		Given the bound returns the prime whose product is greater than B
+		and which would yeild most efficient complexity of sieve algorithm
+		"""
+		# complexity of part 1 is assumed to be N^5*P_max^{N}
+		# Complexity of part 2 is N^5 * (alpha / P_max) alpha is product of all primes
+
+		M = dict() # stores the list of primes as value for no of primes as key.
+		L = sufficient_primes(B)
+		max_length = len(L)
+		M[max_length] = L
+		current_count = max_length - 1
+		
+		while current_count > 1:
+			current_list = []
+			least = (B.n()**(1.00/current_count)).ceil()
+			for i in range(current_count):
+				current_list.append(next_prime(least))
+				least = current_list[-1]
+			M[current_count] = current_list
+
+			current_count = current_count - 1
+
+		best_size = 2
+		best_time = (N**2)*M[2][-1]**(N) + (N**5 * (prod(M[2]) / M[2][-1]).n() )
+		for i in range(2, max_length + 1):
+			current_time = (N**2)*M[i][-1]**(N) + (N**5 * (prod(M[i])  / M[i][-1]).n() )
+			if current_time < best_time:
+				best_size = i
+				best_time = current_time
+
+		return M[best_size]
+
 	def parallel_function(X, p):
 		r"""
 		function to be used in parallel computation,
@@ -49,6 +83,8 @@ def sieve(X, bound=0):
 
 		return modulo_points
 
+
+
 	# start of main algorithm
 
 	P = X.ambient_space()
@@ -56,13 +92,12 @@ def sieve(X, bound=0):
 
 	# bound as per preposition - 4, in preperiodic points paper
 	B = (2**(N/4+1)*bound**2*sqrt(N+1)).n()
-	primes = sufficient_primes(B.ceil())
+	primes = good_primes(B.ceil(), N)
 
 	modulo_points = points_modulo_primes(X,primes)
 	len_modulo_points = [len(_) for _ in modulo_points]
 	len_primes = len(primes)
 	prod_primes = prod(primes)
-	bound_log = RR(bound).log()
 
 	rat_points = set()
 
@@ -90,7 +125,7 @@ def sieve(X, bound=0):
 		# check if all coordinates of this point satisfy bound
 		bound_satisfied = true
 		for coordinate in point:
-			if coordinate.global_height() > bound_log:
+			if coordinate.abs() > bound:
 				bound_satisfied = false
 		if not bound_satisfied:
 			continue
