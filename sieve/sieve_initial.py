@@ -62,6 +62,7 @@ def sieve(X, bound=0):
 	len_modulo_points = [len(_) for _ in modulo_points]
 	len_primes = len(primes)
 	prod_primes = prod(primes)
+	bound_log = RR(bound).log()
 
 	rat_points = set()
 
@@ -89,13 +90,13 @@ def sieve(X, bound=0):
 		# check if all coordinates of this point satisfy bound
 		bound_satisfied = true
 		for coordinate in point:
-			if RR(coordinate).abs() > bound:
+			if coordinate.global_height() > bound_log:
 				bound_satisfied = false
 		if not bound_satisfied:
 			continue
 
 		try:
-			rat_points.add(X(list(A[1]))) # checks if this point lies on Z or not
+			rat_points.add(X(list(A[1]))) # checks if this point lies on X or not
 		except:
 			pass
 
