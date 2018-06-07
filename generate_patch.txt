@@ -1,0 +1,5 @@
+use
+    git format-patch branch_name --stdout > patch_file.patch    # generate patch
+    git am < patch_file.patch                                   # apply patch
+
+this creates a diff calculated from comparison with branch_name and current branch.

@@ -1,0 +1,864 @@
+diff --git a/src/sage/schemes/affine/affine_homset.py b/src/sage/schemes/affine/affine_homset.py
+index a624ca9..1c5f618 100644
+--- a/src/sage/schemes/affine/affine_homset.py
++++ b/src/sage/schemes/affine/affine_homset.py
+@@ -19,6 +19,8 @@ done by :class:`SchemeHomset_points` and its subclasses.
+ AUTHORS:
+ 
+ - William Stein (2006): initial version.
++
++- Ben Hutz (2018): add numerical point support
+ """
+ 
+ 
+@@ -31,8 +33,8 @@ AUTHORS:
+ #                  http://www.gnu.org/licenses/
+ #*****************************************************************************
+ 
+-
+-from sage.rings.all import ZZ
++from sage.misc.all import verbose
++from sage.rings.all import ZZ, CC, RR
+ from sage.rings.rational_field import is_RationalField
+ from sage.categories.fields import Fields
+ from sage.categories.number_fields import NumberFields
+@@ -119,23 +121,47 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+         Set of rational points of Affine Space of dimension 2 over Rational Field
+     """
+ 
+-    def points(self, B=0, tolerance=0.9):
++    def points(self, **kwds):
+         r"""
+         Return some or all rational points of an affine scheme.
+ 
++        For dimension 0 subschemes points are determined through a groebner
++        basis calculation. For subschemes with dimension greater than 1
++        points are determined through enumeration up to the specified bound.
++
+         INPUT:
+ 
++        kwds:
++
+         - ``B`` -- integer (optional, default: 0). The bound for the
+-          height of the coordinates.
++          height of the coordinates. Only used for subschemes with
++          dimension at least 1.
++
++        - ``zero_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, points are on the subscheme if they
++          satisfy the equations to within tolerance.
++
+ 
+         OUTPUT:
+ 
+         - If the base ring is a finite field: all points of the scheme,
+           given by coordinate tuples.
+ 
+-        - If the base ring is `\QQ` or `\ZZ`: the subset of points whose
++        - If the base ring is a number field or `\ZZ`: the subset of points whose
+           coordinates have height ``B`` or less.
+ 
++        .. WARNING::
++
++           In the current implementation, the output of the [Doyle-Krumm] algorithm
++           cannot be guaranteed to be correct due to the necessity of floating point
++           computations. In some cases, the default 53-bit precision is
++           considerably lower than would be required for the algorithm to
++           generate correct output.
++
++           For numerically inexact fields such as ComplexField or RealField the
++           list of points returned is very likely to be incomplete. It may also
++           contain repeated points due to tolerance.
++
+         EXAMPLES: The bug reported at #11526 is fixed::
+ 
+             sage: A2 = AffineSpace(ZZ, 2)
+@@ -143,13 +169,14 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+             sage: A2(F).points()
+             [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (2, 2)]
+ 
+-            sage: R = ZZ
+-            sage: A.<x,y> = R[]
++        ::
++
++            sage: A.<x,y> = ZZ[]
+             sage: I = A.ideal(x^2-y^2-1)
+-            sage: V = AffineSpace(R, 2)
++            sage: V = AffineSpace(ZZ, 2)
+             sage: X = V.subscheme(I)
+-            sage: M = X(R)
+-            sage: M.points(1)
++            sage: M = X(ZZ)
++            sage: M.points(bound=1)
+             [(-1, 0), (1, 0)]
+ 
+         ::
+@@ -157,7 +184,7 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+             sage: u = QQ['u'].0
+             sage: K.<v> = NumberField(u^2 + 3)
+             sage: A.<x,y> = AffineSpace(K, 2)
+-            sage: len(A(K).points(9))
++            sage: len(A(K).points(bound=9))
+             361
+ 
+         ::
+@@ -170,29 +197,31 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+         ::
+ 
+             sage: A.<x,y> = AffineSpace(CC, 2)
+-            sage: E = A.subscheme([y^3-x^3-x^2, x*y])
++            sage: E = A.subscheme([y^3 - x^3 - x^2, x*y])
+             sage: E(A.base_ring()).points()
++            verbose 0 (124: affine_homset.py, points) Warning: computations in the numerical fields are inexact;points may be computed partially or incorrectly.
+             [(-1.00000000000000, 0.000000000000000),
+             (0.000000000000000, 0.000000000000000)]
+ 
+         ::
+ 
+             sage: A.<x1,x2> = AffineSpace(CDF, 2)
+-            sage: E = A.subscheme([x1^2+x2^2+x1*x2, x1+x2])
++            sage: E = A.subscheme([x1^2 + x2^2 + x1*x2, x1 + x2])
+             sage: E(A.base_ring()).points()
++            verbose 0 (124: affine_homset.py, points) Warning: computations in the numerical fields are inexact;points may be computed partially or incorrectly.
+             [(0.0, 0.0)]
+         """
+         from sage.schemes.affine.affine_space import is_AffineSpace
+-        from sage.rings.all import CC, CDF, RR
+         X = self.codomain()
+-        tolerance_RR = RR(tolerance)
+-        if tolerance_RR.sign() != 1:
+-            raise ValueError("Tolerance must be positive")        
+         if not is_AffineSpace(X) and X.base_ring() in Fields():
+-            if X.base_ring() == CC or X.base_ring() == CDF:
+-                complex = True
++            if hasattr(X.base_ring(), 'precision'):
++                numerical = True
++                verbose("Warning: computations in the numerical fields are inexact;points may be computed partially or incorrectly.", level=0)
++                zero_tol = RR(kwds.pop('zero_tolerance', 10**(-10)))
++                if zero_tol <= 0:
++                    raise ValueError("tolerance must be positive")
+             else:
+-                complex = False
++                numerical = False
+             # Then X must be a subscheme
+             dim_ideal = X.defining_ideal().dimension()
+             if dim_ideal < 0: # no points
+@@ -223,7 +252,7 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+                             #variable polynomial (by elimination)
+                             L = G[i].substitute(P)
+                             if R(L).degree() > 0:
+-                                if complex:
++                                if numerical:
+                                     for pol in L.univariate_polynomial().roots(multiplicities=False):
+                                         r = L.variables()[0]
+                                         varindex = R.gens().index(r)
+@@ -253,32 +282,20 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+                     #they are the rational solutions to the equations
+                     #make them into projective points
+                     for i in range(len(points)):
+-                        if complex:
++                        if numerical:
+                             if len(points[i]) == N:
+                                 S = X.ambient_space()([points[i][R.gen(j)] for j in range(N)])
+-                                #S.normalize_coordinates()
+-                                rat_points.append(S)
++                                if all([g(list(S)) < zero_tol for g in X.defining_polynomials()]):
++                                    rat_points.append(S)
+                         else:
+                             if len(points[i]) == N and I.subs(points[i]) == I0:
+                                 S = X([points[i][R.gen(j)] for j in range(N)])
+-                                #S.normalize_coordinates()
+                                 rat_points.append(S)
+-                
+-                # remove duplicate element using tolerance
+-                if complex:
+-                    tol = (X.base_ring().precision()*tolerance_RR).floor()
+-                    dupl_points = list(rat_points)
+-                    for i in range(len(dupl_points)):
+-                        u = dupl_points[i]
+-                        for j in range(i+1, len(dupl_points)):
+-                            v = dupl_points[j]
+-                            if all([(u[k]-v[k]).abs() < 2**(-tol) for k in range(len(u))]):
+-                                rat_points.remove(u)
+-                                break 
+ 
+                 rat_points = sorted(rat_points)
+                 return rat_points
+         R = self.value_ring()
++        B = kwds.pop('bound', 0)
+         if is_RationalField(R) or R == ZZ:
+             if not B > 0:
+                 raise TypeError("a positive bound B (= %s) must be specified"%B)
+@@ -294,3 +311,135 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+             return enum_affine_finite_field(self)
+         else:
+             raise TypeError("unable to enumerate points over %s"%R)
++
++    def numerical_points(self, F=None, **kwds):
++        """
++        Return some or all numerical approximations of rational points of a projective scheme.
++
++        This is for dimension 0 subschemes only and the points are determined
++        through a groebner calculation over the base ring and then numerically
++        approximating the roots of the resulting polynomials.
++
++        INPUT:
++
++        ``F`` - numerical ring
++
++        kwds:
++
++        - ``zero_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, points are on the subscheme if they
++          satisfy the equations to within tolerance.
++
++        OUTPUT: A list of points in the ambient space.
++
++        .. WARNING::
++
++           For numerically inexact fields the list of points returned may contain repeated
++           or be missing points due to tolerance.
++
++        EXAMPLES::
++
++            sage: K.<v> = QuadraticField(3)
++            sage: A.<x,y> = AffineSpace(K, 2)
++            sage: X = A.subscheme([x^3 - v^2*y, y - v*x^2 + 3])
++            sage: L = X(K).numerical_points(F=RR); L
++            [(-1.18738247880014, -0.558021142104134),
++             (1.57693558184861, 1.30713548084184),
++             (4.80659931965815, 37.0162574656220)]
++            sage: L[0].codomain()
++            Affine Space of dimension 2 over Real Field with 53 bits of precision
++
++        ::
++
++            sage: A.<x,y> = AffineSpace(QQ, 2)
++            sage: X = A.subscheme([y^2 - x^2 - 3*x, x^2 - 10*y])
++            sage: len(X(QQ).numerical_points(F=ComplexField(100)))
++            4
++
++        TESTS::
++
++            sage: A.<x,y> = AffineSpace(QQ, 2)
++            sage: X = A.subscheme([y^2 - x^2 - 3*x, x^2 - 10*y])
++            sage: X(QQ).numerical_points(F=QQ)
++            Traceback (most recent call last):
++            ...
++            TypeError: F must be a numerical field
++
++        ::
++
++            sage: A.<x,y> = AffineSpace(QQ, 2)
++            sage: X = A.subscheme([y^2 - x^2 - 3*x, x^2 - 10*y])
++            sage: X(QQ).numerical_points(F=CC, zero_tolerance=-1)
++            Traceback (most recent call last):
++            ...
++            ValueError: tolerance must be positive
++        """
++        from sage.schemes.affine.affine_space import is_AffineSpace
++        if F is None:
++            F = CC
++        if not F in Fields() or not hasattr(F, 'precision'):
++            raise TypeError('F must be a numerical field')
++        X = self.codomain()
++        if X.base_ring() not in NumberFields():
++            raise TypeError('base ring must be a number field')
++
++        AA = X.ambient_space().change_ring(F)
++        if not is_AffineSpace(X) and X.base_ring() in Fields():
++            # Then X must be a subscheme
++            dim_ideal = X.defining_ideal().dimension()
++            if dim_ideal < 0: # no points
++                return []
++            if dim_ideal == 0: # if X zero-dimensional
++                zero_tol = RR(kwds.pop('zero_tolerance', 10**(-10)))
++                if zero_tol <= 0:
++                    raise ValueError("tolerance must be positive")
++                rat_points = []
++                PS = X.ambient_space()
++                N = PS.dimension_relative()
++                BR = X.base_ring()
++                #need a lexicographic ordering for elimination
++                R = PolynomialRing(BR, N, PS.gens(), order='lex')
++                RF = R.change_ring(F)
++                I = R.ideal(X.defining_polynomials())
++                I0 = R.ideal(0)
++                #Determine the points through elimination
++                #This is much faster than using the I.variety() function on each affine chart.
++                G = I.groebner_basis()
++                G = [RF(g) for g in G]
++                if G != [1]:
++                    P = {}
++                    points = [P]
++                    #work backwards from solving each equation for the possible
++                    #values of the next coordinate
++                    for i in range(len(G) - 1, -1, -1):
++                        new_points = []
++                        good = 0
++                        for P in points:
++                            #substitute in our dictionary entry that has the values
++                            #of coordinates known so far. This results in a single
++                            #variable polynomial (by elimination)
++                            L = G[i].substitute(P)
++                            if len(RF(L).variables())==1:
++                                for pol in L.univariate_polynomial().roots(ring=F, multiplicities=False):
++                                    r = L.variables()[0]
++                                    varindex = RF.gens().index(r)
++                                    P.update({RF.gen(varindex):pol})
++                                    new_points.append(copy(P))
++                                    good = 1
++                            else:
++                                new_points.append(P)
++                                good = 1
++                        if good:
++                            points = new_points
++                    #the dictionary entries now have values for all coordinates
++                    #they are the rational solutions to the equations
++                    #make them into projective points
++                    polys = [g.change_ring(F) for g in X.defining_polynomials()]
++                    for i in range(len(points)):
++                        if len(points[i]) == N:
++                            S = AA([points[i][R.gen(j)] for j in range(N)])
++                            if all([g(list(S)) < zero_tol for g in polys]):
++                                rat_points.append(S)
++
++                rat_points = sorted(rat_points)
++                return rat_points
+diff --git a/src/sage/schemes/curves/curve.py b/src/sage/schemes/curves/curve.py
+index f90d760..36fb6a3 100644
+--- a/src/sage/schemes/curves/curve.py
++++ b/src/sage/schemes/curves/curve.py
+@@ -275,6 +275,7 @@ class Curve_generic(AlgebraicScheme_subscheme):
+         if F is None:
+             if not self.base_ring() in Fields():
+                 raise TypeError("curve must be defined over a field")
++            F = self.base_ring()
+         elif not F in Fields():
+             raise TypeError("(=%s) must be a field"%F)
+         X = self.singular_subscheme()
+diff --git a/src/sage/schemes/generic/algebraic_scheme.py b/src/sage/schemes/generic/algebraic_scheme.py
+index 9e83922..5c2883f 100644
+--- a/src/sage/schemes/generic/algebraic_scheme.py
++++ b/src/sage/schemes/generic/algebraic_scheme.py
+@@ -824,11 +824,22 @@ class AlgebraicScheme_quasi(AlgebraicScheme):
+                 return True
+         raise TypeError("Coordinates %s do not define a point on %s"%(v,self))
+ 
+-    def rational_points(self, F=None, bound=0):
++    def rational_points(self, **kwds):
+         """
+         Return the set of rational points on this algebraic scheme
+         over the field `F`.
+ 
++        INPUT:
++
++        kwds:
++
++        - ``bound`` - integer (optional, default=0). The bound for the coordinates for
++          subschemes with dimension at least 1.
++
++        - ``F`` - field (optional, default=base ring). The field to compute
++          the rational points over.
++
++
+         EXAMPLES::
+ 
+             sage: A.<x, y> = AffineSpace(2, GF(7))
+@@ -837,7 +848,7 @@ class AlgebraicScheme_quasi(AlgebraicScheme):
+             sage: U = T.complement(S)
+             sage: U.rational_points()
+             [(2, 4), (3, 2), (4, 2), (5, 4), (6, 1)]
+-            sage: U.rational_points(GF(7^2, 'b'))
++            sage: U.rational_points(F=GF(7^2, 'b'))
+             [(2, 4), (3, 2), (4, 2), (5, 4), (6, 1), (b, b + 4), (b + 1, 3*b + 5), (b + 2, 5*b + 1),
+             (b + 3, 6), (b + 4, 2*b + 6), (b + 5, 4*b + 1), (b + 6, 6*b + 5), (2*b, 4*b + 2),
+             (2*b + 1, b + 3), (2*b + 2, 5*b + 6), (2*b + 3, 2*b + 4), (2*b + 4, 6*b + 4),
+@@ -849,6 +860,8 @@ class AlgebraicScheme_quasi(AlgebraicScheme):
+             (5*b + 6, b + 3), (6*b, b + 4), (6*b + 1, 6*b + 5), (6*b + 2, 4*b + 1), (6*b + 3, 2*b + 6),
+             (6*b + 4, 6), (6*b + 5, 5*b + 1), (6*b + 6, 3*b + 5)]
+         """
++        F = kwds.get('F', None)
++        bound = kwds.get('bound', 0)
+         if F is None:
+             F = self.base_ring()
+ 
+@@ -1659,10 +1672,54 @@ class AlgebraicScheme_subscheme(AlgebraicScheme):
+             raise ValueError("other (=%s) must be in the same ambient space as self"%other)
+         return AlgebraicScheme_quasi(other, self)
+ 
+-    def rational_points(self, bound=0, F=None, tolerance=0.9):
++    def rational_points(self, **kwds):
+         """
+         Return the rational points on the algebraic subscheme.
+ 
++        For a dimension 0 subscheme, if the base ring is a numerical field
++        such as the ComplexField the results returned could be very far from correct.
++        If the polynomials defining the subscheme are defined over a number field, you
++        will get better results calling rational points with `F` defined as the numberical
++        field and the base ring as the field of definition.
++
++        In the case of numerically aproximated points, the points are returned over as
++        points of the ambient space.
++
++        INPUT:
++
++        kwds:
++
++        - ``bound`` - integer (optional, default=0). The bound for the coordinates for
++          subschemes with dimension at least 1.
++
++        - ``prec`` - integer (optional, default=53). The precision to use to
++          compute the elements of bounded height for number fields.
++
++        - ``F`` - field (optional, default=base ring). The field to compute
++          the rational points over.
++
++        - ``point_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, two points are considered the same
++          if their coordinates are within tolerance.
++
++        - ``zero_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, points are on the subscheme if they
++          satisfy the equations to within tolerance.
++
++        OUTPUT: list of points in subscheme or ambient space
++
++        .. WARNING::
++
++           In the current implementation, the output of the [Doyle-Krumm] algorithm
++           cannot be guaranteed to be correct due to the necessity of floating point
++           computations. In some cases, the default 53-bit precision is
++           considerably lower than would be required for the algorithm to
++           generate correct output. THis applied to enumeration of points
++           over number field for subschemes of dimension at least 1.
++
++           For numerically inexact fields such as ComplexField or RealField the
++           list of points returned is very likely to be incomplete at best.
++
+         EXAMPLES:
+ 
+         Enumerate over a projective scheme over a number field::
+@@ -1671,7 +1728,7 @@ class AlgebraicScheme_subscheme(AlgebraicScheme):
+             sage: K.<v> = NumberField(u^2 + 3)
+             sage: A.<x,y> = ProjectiveSpace(K,1)
+             sage: X=A.subscheme(x^2 - y^2)
+-            sage: X.rational_points(3)
++            sage: X.rational_points(bound=3)
+             [(-1 : 1), (1 : 1)]
+ 
+         One can enumerate points up to a given bound on a projective scheme
+@@ -1700,6 +1757,23 @@ class AlgebraicScheme_subscheme(AlgebraicScheme):
+             [(0 : 1 : 0), (0 : 1 : 1), (0 : 6 : 1), (2 : 0 : 1),
+              (4 : 0 : 1), (6 : 1 : 1), (6 : 6 : 1)]
+ 
++        ::
++
++            sage: K.<v> = QuadraticField(-3)
++            sage: P.<x,y,z> = ProjectiveSpace(K, 2)
++            sage: X = P.subscheme([x^2 - v^2*x*z, y*x-v*z^2])
++            sage: X.rational_points(F=CC)
++            [(-3.00000000000000 : -0.577350269189626*I : 1.00000000000000),
++             (0.000000000000000 : 1.00000000000000 : 0.000000000000000)]
++
++        ::
++
++            sage: K.<v> = QuadraticField(3)
++            sage: A.<x,y> = AffineSpace(K, 2)
++            sage: X = A.subscheme([x^2 - v^2*y, y*x-v])
++            sage: X.rational_points(F=RR)
++            [(1.73205080756888, 1.00000000000000)]
++
+         .. TODO::
+ 
+             1. The above algorithms enumerate all projective points and
+@@ -1710,15 +1784,21 @@ class AlgebraicScheme_subscheme(AlgebraicScheme):
+                resolve singularities and find two points (1 : 1 : 0) and
+                (-1 : 1 : 0) at infinity.
+         """
+-        if F is None:
++        F = kwds.pop('F', None)
++        if F is None: #sometimes None is passed in
+             F = self.base_ring()
+-        X = self.base_extend(F)(F)
+         if F in NumberFields() or F == ZZ:
++            X = self.base_extend(F)(F)
+             try:
+-                return X.points(B=bound, tolerance=tolerance) # checks for proper bound done in points functions
++                return X.points(**kwds) # checks for proper bound done in points functions
+             except TypeError:
+                 raise TypeError("Unable to enumerate points over %s."%F)
++        elif (self.base_ring() in NumberFields() or self.base_ring() == ZZ)\
++          and hasattr(F, 'precision'):
++            #we are numerically approximating number field points
++            return self(self.base_ring()).numerical_points(F=F, **kwds)
+         try:
++            X = self.base_extend(F)(F)
+             return X.points()
+         except TypeError:
+             raise TypeError("Unable to enumerate points over %s."%F)
+diff --git a/src/sage/schemes/projective/projective_homset.py b/src/sage/schemes/projective/projective_homset.py
+index c97d7cf..574e0b5 100644
+--- a/src/sage/schemes/projective/projective_homset.py
++++ b/src/sage/schemes/projective/projective_homset.py
+@@ -23,6 +23,8 @@ AUTHORS:
+ - Volker Braun (2011-08-11): significant improvement and refactoring.
+ 
+ - Ben Hutz (June 2012): added support for projective ring
++
++- Ben Hutz (2018): add numerical point support
+ """
+ 
+ 
+@@ -36,9 +38,11 @@ AUTHORS:
+ #                  http://www.gnu.org/licenses/
+ #*****************************************************************************
+ 
+-from sage.rings.all import ZZ
++from sage.rings.all import ZZ, CC, RR
+ from sage.schemes.generic.homset import SchemeHomset_points
+ 
++from sage.misc.all import verbose
++
+ from sage.rings.rational_field import is_RationalField
+ from sage.categories.fields import Fields
+ from sage.categories.number_fields import NumberFields
+@@ -63,16 +67,31 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+         sage: SchemeHomset_points_projective_field(Spec(QQ), ProjectiveSpace(QQ,2))
+         Set of rational points of Projective Space of dimension 2 over Rational Field
+     """
+-    def points(self, B=0, prec=53, tolerance=0.9):
++    def points(self, **kwds):
+         """
+         Return some or all rational points of a projective scheme.
+ 
++        For dimension 0 subschemes points are determined through a groebner
++        basis calculation. For subschemes with dimension greater than 1
++        points are determined through enumeration up to the specified bound.
++
+         INPUT:
+ 
+-        - ``B`` - integer (optional, default=0). The bound for the
+-          coordinates.
++        kwds:
++
++        - ``bound`` - integer (optional, default=0). The bound for the coordinates for
++          subschemes with dimension at least 1.
++
++        - ``prec`` - integer (optional, default=53). The precision to use to
++          compute the elements of bounded height for number fields.
+ 
+-        - ``prec`` - he precision to use to compute the elements of bounded height for number fields.
++        - ``point_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, two points are considered the same
++          if their coordinates are within tolerance.
++
++        - ``zero_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, points are on the subscheme if they
++          satisfy the equations to within tolerance.
+ 
+         OUTPUT:
+ 
+@@ -88,10 +107,14 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+            considerably lower than would be required for the algorithm to
+            generate correct output.
+ 
++           For numerically inexact fields such as ComplexField or RealField the
++           list of points returned is very likely to be incomplete. It may also
++           contain repeated points due to tolerance.
++
+         EXAMPLES::
+ 
+             sage: P.<x,y> = ProjectiveSpace(QQ,1)
+-            sage: P(QQ).points(4)
++            sage: P(QQ).points(bound=4)
+             [(-4 : 1), (-3 : 1), (-2 : 1), (-3/2 : 1), (-4/3 : 1), (-1 : 1),
+             (-3/4 : 1), (-2/3 : 1), (-1/2 : 1), (-1/3 : 1), (-1/4 : 1), (0 : 1),
+             (1/4 : 1), (1/3 : 1), (1/2 : 1), (2/3 : 1), (3/4 : 1), (1 : 0), (1 : 1),
+@@ -102,7 +125,7 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+             sage: u = QQ['u'].0
+             sage: K.<v> = NumberField(u^2 + 3)
+             sage: P.<x,y,z> = ProjectiveSpace(K,2)
+-            sage: len(P(K).points(1.8))
++            sage: len(P(K).points(bound=1.8))
+             381
+ 
+         ::
+@@ -122,37 +145,42 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+ 
+         ::
+ 
+-            sage: P.<x,y,z> = ProjectiveSpace(CC,2)
+-            sage: E = P.subscheme([y^3-x^3-x*z^2,x*y*z])
+-            sage: E(P.base_ring()).points()
++            sage: P.<x,y,z> = ProjectiveSpace(CC, 2)
++            sage: E = P.subscheme([y^3 - x^3 - x*z^2, x*y*z])
++            sage: L=E(P.base_ring()).points();L
++            verbose 0 (70: projective_homset.py, points) Warning: computations in the numerical fields are inexact;points may be computed partially or incorrectly.
+             [(-0.500000000000000 + 0.866025403784439*I : 1.00000000000000 : 0.000000000000000),
+             (-0.500000000000000 - 0.866025403784439*I : 1.00000000000000 : 0.000000000000000),
+             (-1.00000000000000*I : 0.000000000000000 : 1.00000000000000),
+             (0.000000000000000 : 0.000000000000000 : 1.00000000000000),
+             (1.00000000000000*I : 0.000000000000000 : 1.00000000000000),
+             (1.00000000000000 : 1.00000000000000 : 0.000000000000000)]
++            sage: L[0].codomain()
++            Projective Space of dimension 2 over Complex Field with 53 bits of precision
+ 
+         ::
+ 
+-            sage: P.<x,y,z> = ProjectiveSpace(CDF,2)
+-            sage: E = P.subscheme([y^3-x^3-x*z^2,x*y*z])
++            sage: P.<x,y,z> = ProjectiveSpace(CDF, 2)
++            sage: E = P.subscheme([y^3 - x^3 - x*z^2, x*y*z])
+             sage: E(P.base_ring()).points()
++            verbose 0 (70: projective_homset.py, points) Warning: computations in the numerical fields are inexact;points may be computed partially or incorrectly.
+             [(-0.5000000000000001 - 0.866025403784439*I : 1.0 : 0.0),
+             (-0.49999999999999967 + 0.8660254037844384*I : 1.0 : 0.0),
+             (0.0 : 0.0 : 1.0), (2.7755575615628914e-17 - 1.0*I : 0.0 : 1.0),
+             (2.7755575615628914e-17 + 1.0*I : 0.0 : 1.0), (1.0 : 1.0 : 0.0)]
+         """
+         from sage.schemes.projective.projective_space import is_ProjectiveSpace
+-        from sage.rings.all import CC, CDF, RR
+         X = self.codomain()
+-        tolerance_RR = RR(tolerance)
+-        if tolerance_RR.sign() != 1:
+-            raise ValueError("Tolerance must be positive")
+         if not is_ProjectiveSpace(X) and X.base_ring() in Fields():
+-            if X.base_ring() == CC or X.base_ring() == CDF:
+-                complex = True
++            if hasattr(X.base_ring(), 'precision'):
++                numerical = True
++                verbose("Warning: computations in the numerical fields are inexact;points may be computed partially or incorrectly.", level=0)
++                pt_tol = RR(kwds.pop('point_tolerance', 10**(-10)))
++                zero_tol = RR(kwds.pop('zero_tolerance', 10**(-10)))
++                if pt_tol <= 0 or zero_tol <= 0:
++                    raise ValueError("tolerance must be positive")
+             else:
+-                complex = False
++                numerical = False
+             #Then it must be a subscheme
+             dim_ideal = X.defining_ideal().dimension()
+             if dim_ideal < 1: # no points
+@@ -187,7 +215,7 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+                                 #variable polynomial (by elimination)
+                                 L = G[i].substitute(P)
+                                 if R(L).degree() > 0:
+-                                    if complex:
++                                    if numerical:
+                                         for pol in L.univariate_polynomial().roots(multiplicities=False):
+                                             good = 1
+                                             r = L.variables()[0]
+@@ -216,33 +244,34 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+                         #they are the rational solutions to the equations
+                         #make them into projective points
+                         for i in range(len(points)):
+-                            if complex:
++                            if numerical:
+                                 if len(points[i]) == N + 1:
+                                     S = X.ambient_space()([points[i][R.gen(j)] for j in range(N + 1)])
+                                     S.normalize_coordinates()
+-                                    rat_points.add(S)
++                                    if all([g(list(S)) < zero_tol for g in X.defining_polynomials()]):
++                                        rat_points.add(S)
+                             else:
+                                 if len(points[i]) == N + 1 and I.subs(points[i]) == I0:
+                                     S = X([points[i][R.gen(j)] for j in range(N + 1)])
+                                     S.normalize_coordinates()
+                                     rat_points.add(S)
+-                
++
+                 # remove duplicate element using tolerance
+-                if complex:
+-                    from math import floor
+-                    tol = (X.base_ring().precision()*tolerance_RR).floor()
++                if numerical:
+                     dupl_points = list(rat_points)
+                     for i in range(len(dupl_points)):
+                         u = dupl_points[i]
+                         for j in range(i+1, len(dupl_points)):
+                             v = dupl_points[j]
+-                            if all([(u[k]-v[k]).abs() < 2**(-tol) for k in range(len(u))]):
++                            if all([(u[k]-v[k]).abs() < pt_tol for k in range(len(u))]):
+                                 rat_points.remove(u)
+-                                break 
++                                break
+ 
+                 rat_points = sorted(rat_points)
+                 return rat_points
+         R = self.value_ring()
++        B = kwds.pop('bound', 0)
++        prec = kwds.pop('prec', 53)
+         if is_RationalField(R):
+             if not B > 0:
+                 raise TypeError("a positive bound B (= %s) must be specified"%B)
+@@ -259,6 +288,170 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+         else:
+             raise TypeError("unable to enumerate points over %s"%R)
+ 
++    def numerical_points(self, F=None, **kwds):
++        """
++        Return some or all numerical approximations of rational points of a projective scheme.
++
++        This is for dimension 0 subschemes only and the points are determined
++        through a groebner calculation over the base ring and then numerically
++        approximating the roots of the resulting polynomials.
++
++        INPUT:
++
++        ``F`` - numerical ring
++
++        kwds:
++
++        - ``point_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, two points are considered the same
++          if their coordinates are within tolerance.
++
++        - ``zero_tolerance`` - positive real number (optional, default=10^(-10)).
++          For numerically inexact fields, points are on the subscheme if they
++          satisfy the equations to within tolerance.
++
++        OUTPUT: A list of points in the ambient space.
++
++        .. WARNING::
++
++           For numerically inexact fields the list of points returned may contain repeated
++           or be missing points due to tolerance.
++
++        EXAMPLES::
++
++            sage: P.<x,y,z> = ProjectiveSpace(QQ, 2)
++            sage: E = P.subscheme([y^3 - x^3 - x*z^2, x*y*z])
++            sage: L = E(QQ).numerical_points(F=RR); L
++            [(0.000000000000000 : 0.000000000000000 : 1.00000000000000),
++             (1.00000000000000 : 1.00000000000000 : 0.000000000000000)]
++            sage: L[0].codomain()
++            Projective Space of dimension 2 over Real Field with 53 bits of precision
++
++        ::
++
++            sage: S.<a> = QQ[]
++            sage: K.<v> = NumberField(a^5 - 7, embedding=CC((7)**(1/5)))
++            sage: P.<x,y,z>=ProjectiveSpace(K,2)
++            sage: X = P.subscheme([x^2 - v^2*z^2, y-v*z])
++            sage: X(K).numerical_points(F=CDF)
++            [(-1.475773161594552 : 1.475773161594552 : 1.0),
++             (1.475773161594551 : 1.4757731615945517 : 1.0)]
++
++        TESTS::
++
++            sage: P.<x,y,z> = ProjectiveSpace(QQ, 2)
++            sage: E = P.subscheme([y^3 - x^3 - x*z^2, x*y*z])
++            sage: E(QQ).numerical_points(F=CDF, point_tolerance=-1)
++            Traceback (most recent call last):
++            ...
++            ValueError: tolerance must be positive
++
++        ::
++
++            sage: P.<x,y,z> = ProjectiveSpace(QQ, 2)
++            sage: E = P.subscheme([y^3 - x^3 - x*z^2, x*y*z])
++            sage: E(QQ).numerical_points(F=CC, zero_tolerance=-1)
++            Traceback (most recent call last):
++            ...
++            ValueError: tolerance must be positive
++
++        ::
++
++            sage: P.<x,y,z> = ProjectiveSpace(QQ, 2)
++            sage: E = P.subscheme([y^3 - x^3 - x*z^2, x*y*z])
++            sage: E(QQ).numerical_points(F=QQbar)
++            Traceback (most recent call last):
++            ...
++            TypeError: F must be a numerical field
++        """
++        from sage.schemes.projective.projective_space import is_ProjectiveSpace
++        if F is None:
++            F = CC
++        if not F in Fields() or not hasattr(F, 'precision'):
++            raise TypeError('F must be a numerical field')
++        X = self.codomain()
++        if X.base_ring() not in NumberFields():
++            raise TypeError('base ring must be a number field')
++
++        PP = X.ambient_space().change_ring(F)
++        from sage.schemes.projective.projective_space import is_ProjectiveSpace
++        if not is_ProjectiveSpace(X) and X.base_ring() in Fields():
++            #Then it must be a subscheme
++            dim_ideal = X.defining_ideal().dimension()
++            if dim_ideal < 1: # no points
++                return []
++            if dim_ideal == 1: # if X zero-dimensional
++                pt_tol = RR(kwds.pop('point_tolerance', 10**(-10)))
++                zero_tol = RR(kwds.pop('zero_tolerance', 10**(-10)))
++                if pt_tol <= 0 or zero_tol <= 0:
++                    raise ValueError("tolerance must be positive")
++                rat_points = set()
++                PS = X.ambient_space()
++                N = PS.dimension_relative()
++                BR = X.base_ring()
++                #need a lexicographic ordering for elimination
++                R = PolynomialRing(BR, N + 1, PS.variable_names(), order='lex')
++                RF = R.change_ring(F)
++                I = R.ideal(X.defining_polynomials())
++                I0 = R.ideal(0)
++                #Determine the points through elimination
++                #This is much faster than using the I.variety() function on each affine chart.
++                for k in range(N + 1):
++                    #create the elimination ideal for the kth affine patch
++                    G = I.substitute({R.gen(k):1}).groebner_basis()
++                    G = [RF(g) for g in G]
++                    if G != [1]:
++                        P = {}
++                        #keep track that we know the kth coordinate is 1
++                        P.update({RF.gen(k):1})
++                        points = [P]
++                        #work backwards from solving each equation for the possible
++                        #values of the next coordinate
++                        for i in range(len(G) - 1, -1, -1):
++                            new_points = []
++                            good = 0
++                            for P in points:
++                                #substitute in our dictionary entry that has the values
++                                #of coordinates known so far. This results in a single
++                                #variable polynomial (by elimination)
++                                L = G[i].substitute(P)
++                                if len(RF(L).variables())==1:
++                                    for pol in L.univariate_polynomial().roots(ring=F, multiplicities=False):
++                                        r = L.variables()[0]
++                                        varindex = RF.gens().index(r)
++                                        P.update({RF.gen(varindex):pol})
++                                        new_points.append(copy(P))
++                                        good = 1
++                                else:
++                                    new_points.append(P)
++                                    good = 1
++                            if good:
++                                points = new_points
++                        #the dictionary entries now have values for all coordinates
++                        #they are approximate solutions to the equations
++                        #make them into projective points
++                        polys = [g.change_ring(F) for g in X.defining_polynomials()]
++                        for i in range(len(points)):
++                            if len(points[i]) == N + 1:
++                                S = PP([points[i][RF.gen(j)] for j in range(N + 1)])
++                                S.normalize_coordinates()
++                                if all([g(list(S)) < zero_tol for g in polys]):
++                                    rat_points.add(S)
++                        # remove duplicate element using tolerance
++                        #since they are normalized we can just compare coefficients
++                        dupl_points = list(rat_points)
++                        for i in range(len(dupl_points)):
++                            u = dupl_points[i]
++                            for j in range(i+1, len(dupl_points)):
++                                v = dupl_points[j]
++                                if all([(u[k]-v[k]).abs() < pt_tol for k in range(len(u))]):
++                                    rat_points.remove(u)
++                                    break
++
++                rat_points = sorted(rat_points)
++                return rat_points
++            raise NotImplementedError('numerical approximation of points only for dimension 0 subschemes')
++
+ class SchemeHomset_points_projective_ring(SchemeHomset_points):
+     """
+     Set of rational points of a projective variety over a commutative ring.

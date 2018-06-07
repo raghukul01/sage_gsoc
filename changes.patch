@@ -1,0 +1,2253 @@
+From 31c4f1e85507d88cfba160415afd18a71195b61c Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 28 May 2018 06:57:07 +0530
+Subject: [PATCH 01/18] Doyle-Krumm Algorithm 4 Implemented
+
+---
+ src/sage/rings/number_field/bdd_height.py | 378 +++++++++++++++++-------------
+ 1 file changed, 212 insertions(+), 166 deletions(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index 4202ee9..b46ca6e 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -33,6 +33,7 @@ from sage.rings.number_field.unit_group import UnitGroup
+ from sage.modules.free_module_element import vector
+ from sage.matrix.constructor import column_matrix
+ from sage.rings.rational_field import QQ
++from sage.rings.all import RR, Infinity
+ from sage.functions.other import ceil
+ from sage.geometry.polyhedron.constructor import Polyhedron
+ from sage.structure.proof.all import number_field
+@@ -342,53 +343,41 @@ def integer_points_in_polytope(matrix, interval_radius):
+     return list(Polyhedron(transformed_vertices, base_ring=QQ).integral_points())
+ 
+ 
+-def bdd_height(K, height_bound, precision=53, LLL=False):
+-    r"""
++def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
++    r""" 
+     Computes all elements in the number field `K` which have relative
+     multiplicative height at most ``height_bound``.
+ 
+-    The algorithm requires arithmetic with floating point numbers;
+-    ``precision`` gives the user the option to set the precision for such
+-    computations.
++    The function will only be called for number fields `K` with positive unit
++    rank. An error will occur if `K` is `QQ` or an imaginary quadratic field.
+ 
+-    It might be helpful to work with an LLL-reduced system of fundamental
+-    units, so the user has the option to perform an LLL reduction for the
+-    fundamental units by setting ``LLL`` to True.
++    This algorithm computes 2 list: L containing elements x in `K` such that
++    H_k(x) <= B, and a list L' containing elements x in `K` such that
++    abs(H_k(x) - B) < tolerance.
+ 
+-    Certain computations may be faster assuming GRH, which may be done
+-    globally by using the number_field(True/False) switch.
++    In current implementation both lists (L,L') are merged and returned in
++    form of iterator.
+ 
+-    The function will only be called for number fields `K` with positive unit
+-    rank. An error will occur if `K` is `QQ` or an imaginary quadratic field.
+ 
+     ALGORITHM:
+ 
+-    This is an implementation of the main algorithm (Algorithm 3) in
++    This is an implementation of the revised algorithm (Algorithm 4) in
+     [Doyle-Krumm].
+ 
+     INPUT:
+ 
+     - ``height_bound`` - real number
++    - ``tolerance`` - a rational number in (0,1]
+     - ``precision`` - (default: 53) positive integer
+-    - ``LLL`` - (default: False) boolean value
+ 
+     OUTPUT:
+ 
+     - an iterator of number field elements
+ 
+-    .. WARNING::
+-
+-        In the current implementation, the output of the algorithm cannot be
+-        guaranteed to be correct due to the necessity of floating point
+-        computations. In some cases, the default 53-bit precision is
+-        considerably lower than would be required for the algorithm to
+-        generate correct output.
+-
+     .. TODO::
+-
+-        Should implement a version of the algorithm that guarantees correct
+-        output. See Algorithm 4 in [Doyle-Krumm] for details of an
+-        implementation that takes precision issues into account.
++    
++        Need to add support for the case when `r=0` and
++        `K` is `QQ`
+ 
+     EXAMPLES:
+ 
+@@ -424,31 +413,70 @@ def bdd_height(K, height_bound, precision=53, LLL=False):
+ 
+         sage: from sage.rings.number_field.bdd_height import bdd_height
+         sage: K.<g> = NumberField(x^6 + 2)
+-        sage: len(list(bdd_height(K,60,precision=100))) # long time (5 s)
++        sage: len(list(bdd_height(K,60))) # long time (5 s)
+         1899
+ 
+     ::
+ 
+         sage: from sage.rings.number_field.bdd_height import bdd_height
+         sage: K.<g> = NumberField(x^4 - x^3 - 3*x^2 + x + 1)
+-        sage: len(list(bdd_height(K,10,LLL=true)))
++        sage: len(list(bdd_height(K,10)))
+         99
+ 
++    TESTS:
++
++    Check that :trac:`22771` is fixed::
++
++        sage: from sage.rings.number_field.bdd_height import bdd_height
++        sage: K.<v> = NumberField(x^3 + x + 1)
++        sage: len(list(bdd_height(K,3)))
++        23
+     """
+ 
++    # global values, used in internal function
+     B = height_bound
+-    r1, r2 = K.signature(); r = r1 + r2 -1
++    theta = tolerance
+     if B < 1:
+-        return
+-    yield K(0)
+-    roots_of_unity = K.roots_of_unity()
+-    if B == 1:
+-        for zeta in roots_of_unity:
+-            yield zeta
+-        return
+-    RF = RealField(precision)
++        return iter([])
+     embeddings = K.places(prec=precision)
+-    logB = RF(B).log()
++    O_K = K.ring_of_integers()
++    r1, r2 = K.signature(); r = r1 + r2 -1
++    RF = RealField(precision)
++    lambda_gens_approx = dict()
++    class_group_rep_norm_log_approx = []
++    unit_log_dict = dict()
++
++    def rational_in(x,y):
++        r"""
++        Computes a rational number q, such that x<q<y using Archimedes' axiom
++        """
++        z = y - x
++        if z == 0:
++            n = 1
++        else:
++            n = RR(1/z).ceil() + 1
++        if RR(n*y).ceil() is n*y:
++            m = n*y - 1
++        else:
++            m = RR(n*y).floor()
++        return m/n
++
++    def delta_approximation(x,delta):
++        r"""
++        Computes a rational number in range (x-delta,x+delta)
++        """
++        return rational_in(x-delta,x+delta)
++
++    def vector_delta_approximation(v,delta):
++        r"""
++        Computes a rational vector w=(w1,...,wn)
++        such that |vi-wi|<delta for all i in [1,n]
++        """
++        n = len(v)
++        w = []
++        for i in range(n):
++            w.append(delta_approximation(v[i],delta))
++        return w
+ 
+     def log_map(number):
+         r"""
+@@ -457,186 +485,204 @@ def bdd_height(K, height_bound, precision=53, LLL=False):
+         x = number
+         x_logs = []
+         for i in range(r1):
+-            sigma = embeddings[i]
++            sigma = embeddings[i] # real embeddings
+             x_logs.append(abs(sigma(x)).log())
+         for i in range(r1, r + 1):
+-            tau = embeddings[i]
++            tau = embeddings[i] # Complex embeddings
+             x_logs.append(2*abs(tau(x)).log())
+         return vector(x_logs)
+ 
+-    def log_height_for_generators(n, i, j):
++    def log_height_for_generators_approx(alpha,beta,Lambda):
+         r"""
+-        Computes the logarithmic height of elements of the form `g_i/g_j`.
++        Computes the rational approximation of logarithmic height function
++        Returns a lambda approximation h_K(alpha/beta)
+         """
+-        gen_logs = generator_logs[n]
+-        Log_gi = gen_logs[i]; Log_gj = gen_logs[j]
+-        arch_sum = sum([max(Log_gi[k], Log_gj[k]) for k in range(r + 1)])
+-        return (arch_sum - class_group_rep_norm_logs[n])
++        delta = Lambda / (r+2)
++        norm_log = delta_approximation(RR(O_K.ideal(alpha,beta).norm()).log(),delta)
++        log_ga = vector_delta_approximation(log_map(alpha),delta)
++        log_gb = vector_delta_approximation(log_map(beta),delta)
++        arch_sum = sum([max(log_ga[k], log_gb[k]) for k in range(r + 1)])
++        return (arch_sum - norm_log)
+ 
+     def packet_height(n, pair, u):
+         r"""
+         Computes the height of the element of `K` encoded by a given packet.
+         """
+-        gen_logs = generator_logs[n]
++        gens = generator_lists[n]
+         i = pair[0] ; j = pair[1]
+-        Log_gi = gen_logs[i]; Log_gj = gen_logs[j]
+-        Log_u_gi = Log_gi + unit_log_dictionary[u]
++        Log_gi = lambda_gens_approx[gens[i]]; Log_gj = lambda_gens_approx[gens[j]]
++        Log_u_gi = vector(Log_gi) + unit_log_dict[u]
+         arch_sum = sum([max(Log_u_gi[k], Log_gj[k]) for k in range(r + 1)])
+-        return (arch_sum - class_group_rep_norm_logs[n])
++        return (arch_sum - class_group_rep_norm_log_approx[n])
++    
++
++    # Computes ideal class representative and their rational approx norm
++    t = theta / (3*B)
++    delta_1 = t / (6*r+12)
+ 
+     class_group_reps = []
+     class_group_rep_norms = []
+-    class_group_rep_norm_logs = []
++
+     for c in K.class_group():
+         a = c.ideal()
+         a_norm = a.norm()
++        log_norm = RF(a_norm).log()
++        log_norm_approx = delta_approximation(log_norm,delta_1)
+         class_group_reps.append(a)
+         class_group_rep_norms.append(a_norm)
+-        class_group_rep_norm_logs.append(RF(a_norm).log())
++        class_group_rep_norm_log_approx.append(log_norm_approx)
+     class_number = len(class_group_reps)
+ 
+-    # Get fundamental units and their images under the log map
+-    fund_units = UnitGroup(K).fundamental_units()
+-    fund_unit_logs = [log_map(fund_units[i]) for i in range(r)]
+-    unit_prec_test = fund_unit_logs
+-    try:
+-        [l.change_ring(QQ) for l in unit_prec_test]
+-    except ValueError:
+-        raise ValueError('Precision too low.') # QQ(log(0)) may occur if precision too low
+-
+-    # If LLL is set to True, find an LLL-reduced system of fundamental units
+-    if LLL:
+-        cut_fund_unit_logs = column_matrix(fund_unit_logs).delete_rows([r])
+-        lll_fund_units = []
+-        for c in pari(cut_fund_unit_logs).qflll().sage().columns():
+-            new_unit = 1
+-            for i in range(r):
+-                new_unit *= fund_units[i]**c[i]
+-            lll_fund_units.append(new_unit)
+-        fund_units = lll_fund_units
+-        fund_unit_logs = [log_map(_) for _ in fund_units]
+-        unit_prec_test = fund_unit_logs
+-        try:
+-            [l.change_ring(QQ) for l in unit_prec_test]
+-        except ValueError:
+-            raise ValueError('Precision too low.') # QQ(log(0)) may occur if precision too low
+ 
+     # Find generators for principal ideals of bounded norm
+     possible_norm_set = set([])
+     for n in range(class_number):
+-        for m in range(1, B + 1):
++        for m in range(1,B+1):
+             possible_norm_set.add(m*class_group_rep_norms[n])
+     bdd_ideals = bdd_norm_pr_ideal_gens(K, possible_norm_set)
+ 
+-    # Distribute the principal ideal generators
++    # Stores it in form of an dictionary and gives lambda(g)_approx for key g 
++    for norm in possible_norm_set:
++        gens = bdd_ideals[norm]
++        for g in gens:
++            lambda_g_approx = vector_delta_approximation(log_map(g),delta_1)
++            lambda_gens_approx[g] = lambda_g_approx
++
++
++    # Find a list of all generators corresponding to each ideal a_l
+     generator_lists = []
+-    generator_logs = []
+-    for n in range(class_number):
+-        this_ideal = class_group_reps[n]
+-        this_ideal_norm = class_group_rep_norms[n]
++    for l in range(class_number):
++        this_ideal = class_group_reps[l]
++        this_ideal_norm = class_group_rep_norms[l]
+         gens = []
+-        gen_logs = []
+         for i in range(1, B + 1):
+             for g in bdd_ideals[i*this_ideal_norm]:
+                 if g in this_ideal:
+                     gens.append(g)
+-                    gen_logs.append(log_map(g))
+         generator_lists.append(gens)
+-        generator_logs.append(gen_logs)
+ 
+-    # Compute the lists of relevant pairs and corresponding heights
+-    gen_height_dictionary = dict()
++
++    # Finds all relevent pair and thier height
++    gen_height_approx_dictionary = dict()
+     relevant_pair_lists = []
++
+     for n in range(class_number):
+         relevant_pairs = []
+         gens = generator_lists[n]
+-        s = len(gens)
+-        for i in range(s):
+-            for j in range(i + 1, s):
++        l = len(gens)
++        for i in range(l):
++            for j in range(i+1,l):
+                 if K.ideal(gens[i], gens[j]) == class_group_reps[n]:
+-                    relevant_pairs.append([i, j])
+-                    gen_height_dictionary[(n, i, j)] = log_height_for_generators(n, i, j)
++                    relevant_pairs.append([i,j])
++                    gen_height_approx_dictionary[(n,i,j)] = log_height_for_generators_approx(gens[i],gens[j],t/6)
+         relevant_pair_lists.append(relevant_pairs)
+ 
+-    # Find the bound for units to be computed
+-    gen_height_list = [gen_height_dictionary[x] for x in gen_height_dictionary.keys()]
+-    if len(gen_height_list) == 0:
+-        d = logB
+-    else:
+-        d = logB + max(gen_height_list)
++    b = rational_in(t/12 + RR(B).log(), t/4 + RR(B).log())
++    maximum = 0
++    for n in range(class_number):
++        for p in relevant_pair_lists[n]:
++            maximum = max(maximum,gen_height_approx_dictionary[(n,p[0],p[1])])
++    d_tilde = b + t/6 + maximum
+ 
+-    # Create the matrix whose columns are the logs of the fundamental units
++    # computes fundamental units and their value under log map
++    fund_units = UnitGroup(K).fundamental_units()
++    fund_unit_logs = [log_map(fund_units[i]) for i in range(r)]
+     S = column_matrix(fund_unit_logs).delete_rows([r])
+-    try:
+-        T = S.inverse()
+-    except ZeroDivisionError:
+-        raise ValueError('Precision too low.')
+-
+-    # Find all integer lattice points in the unit polytope
+-    U = integer_points_in_polytope(T, ceil(d))
+-
+-    U0 = []; L0 = []
+-
+-    # Compute unit heights
+-    unit_height_dictionary = dict()
+-    unit_log_dictionary = dict()
+-    Ucopy = copy(U)
+-
+-    for u in U:
+-        u_log = sum([u[j]*fund_unit_logs[j] for j in range(r)])
+-        unit_log_dictionary[u] = u_log
++    S_inverse = S.inverse()
++    S_norm = S.norm(Infinity)
++    S_inverse_norm = S_inverse.norm(Infinity)
++
++    upper_bound = (r**2) * max(S_norm,S_inverse_norm)
++    m = RR(upper_bound).ceil() + 1
++
++    # Variables needed for rational approximation
++    lambda_tilde = (t/12) / (d_tilde*r*(1+m))
++    delta_tilde = min(lambda_tilde/((r**2)*((m**2)+m*lambda_tilde)), 1/(r**2))
++    M = d_tilde * (upper_bound+lambda_tilde*RR(r).sqrt())
++    M = RR(M).ceil()
++    delta_2 = min(delta_tilde,(t/6)/(r*(r+1)*M))
++
++    # Computes relevant points in polytope
++    fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i],delta_2) for i in range(r)]
++    S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
++    S_tilde_inverse = S_tilde.inverse()
++    U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
++
++    # tilde suffixed list are used for computing second list (L_primed)
++    LL = [K(0)]
++    U0 = []
++    U0_tilde = []
++    L0 = []
++    L0_tilde = []
++
++    # Computes unit height
++    unit_height_dict = dict()
++    U_copy = copy(U)
++    inter_bound = b - (5*t)/12
++
++    for u in U:    
++        u_log = sum([u[j]*vector(fund_unit_log_approx[j]) for j in range(r)])
++        unit_log_dict[u] = u_log
+         u_height = sum([max(u_log[k], 0) for k in range(r + 1)])
+-        unit_height_dictionary[u] = u_height
+-        if u_height <= logB:
+-            U0.append(u)
+-        if u_height > d:
+-            Ucopy.remove(u)
+-    U = Ucopy
+-
+-    # Sort U by height
+-    U = sorted(U, key=lambda u: unit_height_dictionary[u])
+-    U_length = len(U)
+-
+-    all_unit_tuples  = set(copy(U0))
+-
+-    # Check candidate heights
++        unit_height_dict[u] = u_height
++        if u_height < inter_bound:
++                U0.append(u)
++        if inter_bound <= u_height and u_height < b - (t/12):
++            U0_tilde.append(u)
++        if u_height > t/12 + d_tilde:
++            U_copy.remove(u)
++    U = U_copy
++
++    relevant_tuples = set(U0+U0_tilde)
++
++    # check for relevant packets
+     for n in range(class_number):
+-        relevant_pairs = relevant_pair_lists[n]
+-        for pair in relevant_pairs:
+-            i = pair[0] ; j = pair[1]
+-            gen_height = gen_height_dictionary[(n, i, j)]
+-            u_height_bound = logB + gen_height
+-            for k in range(U_length):
+-                u = U[k]
+-                u_height = unit_height_dictionary[u]
+-                if u_height <= u_height_bound:
+-                    candidate_height = packet_height(n, pair, u)
+-                    if candidate_height <= logB:
+-                        L0.append([n, pair, u])
+-                        all_unit_tuples.add(u)
+-                else:
+-                    break
+-
+-    # Use previous data to build all necessary units
+-    units_dictionary = dict()
+-    for u in all_unit_tuples:
++        for pair in relevant_pair_lists[n]:
++            i = pair[0]; j = pair[1]
++            u_height_bound = b + gen_height_approx_dictionary[(n,i,j)] + t/4
++            for u in U:
++                if unit_height_dict[u] < u_height_bound:
++                    candidate_height = packet_height(n,pair,u)
++                    if candidate_height <= b - (7/12)*t:
++                        L0.append([n,pair,u])
++                        relevant_tuples.add(u);
++                    if candidate_height > b - (7/12)*t and candidate_height < b + t/4:
++                        L0_tilde.append([n,pair,u])
++                        relevant_tuples.add(u);
++
++        
++    # forms a dictionary of all_unit_tuples and thier value
++    tuple_to_unit_dict = dict()
++    for u in relevant_tuples:
+         unit = K(1)
+-        for j in range(r):
+-            unit *= (fund_units[j])**(u[j])
+-        units_dictionary[u] = unit
++        for k in range(r):
++            unit *= (fund_units[k]**u[k])
++        tuple_to_unit_dict[u] = unit
+ 
+-    # Build all the output numbers
++    # Build all output numbers
++    L_primed = [] # This list contain points such that abs(H_k(u)-B) < tolerance
++    roots_of_unity = K.roots_of_unity()
+     for u in U0:
+-        unit = units_dictionary[u]
+         for zeta in roots_of_unity:
+-            yield zeta*unit
+-    for packet in L0:
+-        n = packet[0] ; pair = packet[1] ; u = packet[2]
+-        i = pair[0] ; j = pair[1]
+-        relevant_pairs = relevant_pair_lists[n]
+-        gens = generator_lists[n]
+-        unit = units_dictionary[u]
+-        c = unit*gens[i]/gens[j]
++            LL.append(zeta*tuple_to_unit_dict[u])
++    for u in U0_tilde:
+         for zeta in roots_of_unity:
+-            yield zeta*c
+-            yield zeta/c
++            L_primed.append(zeta*tuple_to_unit_dict[u])
++    for p in L0:
++        gens = generator_lists[p[0]]
++        i = p[1][0]; j = p[1][1]
++        u = p[2]
++        c_p = tuple_to_unit_dict[u] * (gens[i]/gens[j])
++        for zeta in roots_of_unity:
++            LL.append(zeta*c_p)
++            LL.append(zeta/c_p)
++    for p in L0_tilde:
++        gens = generator_lists[p[0]]
++        i = p[1][0]; j = p[1][1]
++        u = p[2]
++        c_p = tuple_to_unit_dict[u] * (gens[i]/gens[j])
++        for zeta in roots_of_unity:
++            L_primed.append(zeta*c_p)
++            L_primed.append(zeta/c_p)
++
++    return iter(LL + L_primed)
+-- 
+2.7.4
+
+
+From 704934a00b7e226c3a468b4433284ca58373e4b3 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 28 May 2018 07:48:05 +0530
+Subject: [PATCH 02/18] Changes made in enum function
+
+---
+ src/sage/rings/number_field/number_field.py | 13 ++++---------
+ 1 file changed, 4 insertions(+), 9 deletions(-)
+
+diff --git a/src/sage/rings/number_field/number_field.py b/src/sage/rings/number_field/number_field.py
+index 9f4e2b3..bab564d 100644
+--- a/src/sage/rings/number_field/number_field.py
++++ b/src/sage/rings/number_field/number_field.py
+@@ -9278,7 +9278,7 @@ class NumberField_absolute(NumberField_generic):
+                 d *= p
+         return d
+ 
+-    def elements_of_bounded_height(self,bound,precision=53,LLL=False):
++    def elements_of_bounded_height(self,bound,tolerance=0.2,precision=53):
+         r"""
+         Return an iterator over the elements of ``self`` with relative
+         multiplicative height at most ``bound``.
+@@ -9298,8 +9298,8 @@ class NumberField_absolute(NumberField_generic):
+         INPUT:
+ 
+         - ``bound`` - a real number
++        - ``tolerance`` - a rational number in (0,1]
+         - ``precision`` - (default: 53) a positive integer
+-        - ``LLL`` - (default: False) a boolean value
+ 
+         OUTPUT:
+ 
+@@ -9313,11 +9313,6 @@ class NumberField_absolute(NumberField_generic):
+            considerably lower than would be required for the algorithm to
+            generate correct output.
+ 
+-        .. TODO::
+-
+-           Should implement a version of the algorithm that guarantees correct
+-           output. See Algorithm 4 in [Doyle-Krumm]_ for details of an
+-           implementation that takes precision issues into account.
+ 
+         EXAMPLES:
+ 
+@@ -9399,7 +9394,7 @@ class NumberField_absolute(NumberField_generic):
+         ::
+ 
+             sage: K.<a> = NumberField(x^4 - x^3 - 3*x^2 + x + 1)
+-            sage: L = K.elements_of_bounded_height(10, LLL=true)
++            sage: L = K.elements_of_bounded_height(10, tolerance=0.1)
+             sage: len(list(L))
+             99
+ 
+@@ -9415,7 +9410,7 @@ class NumberField_absolute(NumberField_generic):
+         if self.degree() == 2 and r == 0:
+             return bdd_height_iq(self, bound)
+         else:
+-            return bdd_height(self, bound, precision, LLL)
++            return bdd_height(self, bound, tolerance, precision)
+ 
+ class NumberField_cyclotomic(NumberField_absolute):
+     """
+-- 
+2.7.4
+
+
+From f149653e456d9a91c952b81d46d986b4e8d15a20 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 28 May 2018 23:33:32 +0530
+Subject: [PATCH 03/18] Updated comments
+
+---
+ src/sage/rings/number_field/bdd_height.py | 52 +++++++++++++++++++++----------
+ 1 file changed, 35 insertions(+), 17 deletions(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index b46ca6e..3300476 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -345,13 +345,13 @@ def integer_points_in_polytope(matrix, interval_radius):
+ 
+ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     r""" 
+-    Computes all elements in the number field `K` which have relative
+-    multiplicative height at most ``height_bound``.
++    Computes all elements in the number field `K` which have height at most
++    ``height_bound``.
+ 
+-    The function will only be called for number fields `K` with positive unit
++    The function can only be called for number fields `K` with positive unit
+     rank. An error will occur if `K` is `QQ` or an imaginary quadratic field.
+ 
+-    This algorithm computes 2 list: L containing elements x in `K` such that
++    This algorithm computes 2 lists: L containing elements x in `K` such that
+     H_k(x) <= B, and a list L' containing elements x in `K` such that
+     abs(H_k(x) - B) < tolerance.
+ 
+@@ -362,7 +362,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     ALGORITHM:
+ 
+     This is an implementation of the revised algorithm (Algorithm 4) in
+-    [Doyle-Krumm].
++    [Doyle-Krumm]_ .
+ 
+     INPUT:
+ 
+@@ -405,13 +405,6 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     ::
+ 
+         sage: from sage.rings.number_field.bdd_height import bdd_height
+-        sage: K.<g> = NumberField(x^3 - 197*x + 39)
+-        sage: len(list(bdd_height(K, 200))) # long time (5 s)
+-        451
+-
+-    ::
+-
+-        sage: from sage.rings.number_field.bdd_height import bdd_height
+         sage: K.<g> = NumberField(x^6 + 2)
+         sage: len(list(bdd_height(K,60))) # long time (5 s)
+         1899
+@@ -486,10 +479,10 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+         x_logs = []
+         for i in range(r1):
+             sigma = embeddings[i] # real embeddings
+-            x_logs.append(abs(sigma(x)).log())
++            x_logs.append(sigma(x).abs().log())
+         for i in range(r1, r + 1):
+             tau = embeddings[i] # Complex embeddings
+-            x_logs.append(2*abs(tau(x)).log())
++            x_logs.append(2*tau(x).abs().log())
+         return vector(x_logs)
+ 
+     def log_height_for_generators_approx(alpha,beta,Lambda):
+@@ -514,8 +507,9 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+         Log_u_gi = vector(Log_gi) + unit_log_dict[u]
+         arch_sum = sum([max(Log_u_gi[k], Log_gj[k]) for k in range(r + 1)])
+         return (arch_sum - class_group_rep_norm_log_approx[n])
+-    
+ 
++
++    # Step 1
+     # Computes ideal class representative and their rational approx norm
+     t = theta / (3*B)
+     delta_1 = t / (6*r+12)
+@@ -534,6 +528,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     class_number = len(class_group_reps)
+ 
+ 
++    # Step 2
+     # Find generators for principal ideals of bounded norm
+     possible_norm_set = set([])
+     for n in range(class_number):
+@@ -549,6 +544,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+             lambda_gens_approx[g] = lambda_g_approx
+ 
+ 
++    # Step 3
+     # Find a list of all generators corresponding to each ideal a_l
+     generator_lists = []
+     for l in range(class_number):
+@@ -562,7 +558,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+         generator_lists.append(gens)
+ 
+ 
+-    # Finds all relevent pair and thier height
++    # Step 4
++    # Finds all relevant pair and their height
+     gen_height_approx_dictionary = dict()
+     relevant_pair_lists = []
+ 
+@@ -577,6 +574,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+                     gen_height_approx_dictionary[(n,i,j)] = log_height_for_generators_approx(gens[i],gens[j],t/6)
+         relevant_pair_lists.append(relevant_pairs)
+ 
++
++    # Step 5
+     b = rational_in(t/12 + RR(B).log(), t/4 + RR(B).log())
+     maximum = 0
+     for n in range(class_number):
+@@ -584,6 +583,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+             maximum = max(maximum,gen_height_approx_dictionary[(n,p[0],p[1])])
+     d_tilde = b + t/6 + maximum
+ 
++
++    # Step 6
+     # computes fundamental units and their value under log map
+     fund_units = UnitGroup(K).fundamental_units()
+     fund_unit_logs = [log_map(fund_units[i]) for i in range(r)]
+@@ -595,6 +596,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     upper_bound = (r**2) * max(S_norm,S_inverse_norm)
+     m = RR(upper_bound).ceil() + 1
+ 
++
++    # Step 7
+     # Variables needed for rational approximation
+     lambda_tilde = (t/12) / (d_tilde*r*(1+m))
+     delta_tilde = min(lambda_tilde/((r**2)*((m**2)+m*lambda_tilde)), 1/(r**2))
+@@ -602,12 +605,16 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     M = RR(M).ceil()
+     delta_2 = min(delta_tilde,(t/6)/(r*(r+1)*M))
+ 
++
++    # Step 8,9
+     # Computes relevant points in polytope
+     fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i],delta_2) for i in range(r)]
+     S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
+     S_tilde_inverse = S_tilde.inverse()
+     U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
+ 
++
++    # Step 10
+     # tilde suffixed list are used for computing second list (L_primed)
+     LL = [K(0)]
+     U0 = []
+@@ -615,6 +622,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     L0 = []
+     L0_tilde = []
+ 
++
++    # Step 11
+     # Computes unit height
+     unit_height_dict = dict()
+     U_copy = copy(U)
+@@ -635,6 +644,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+ 
+     relevant_tuples = set(U0+U0_tilde)
+ 
++
++    # Step 12
+     # check for relevant packets
+     for n in range(class_number):
+         for pair in relevant_pair_lists[n]:
+@@ -650,7 +661,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+                         L0_tilde.append([n,pair,u])
+                         relevant_tuples.add(u);
+ 
+-        
++
++    # Step 13
+     # forms a dictionary of all_unit_tuples and thier value
+     tuple_to_unit_dict = dict()
+     for u in relevant_tuples:
+@@ -659,6 +671,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+             unit *= (fund_units[k]**u[k])
+         tuple_to_unit_dict[u] = unit
+ 
++
++    # Step 14
+     # Build all output numbers
+     L_primed = [] # This list contain points such that abs(H_k(u)-B) < tolerance
+     roots_of_unity = K.roots_of_unity()
+@@ -668,6 +682,9 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     for u in U0_tilde:
+         for zeta in roots_of_unity:
+             L_primed.append(zeta*tuple_to_unit_dict[u])
++
++
++    # Step 15
+     for p in L0:
+         gens = generator_lists[p[0]]
+         i = p[1][0]; j = p[1][1]
+@@ -685,4 +702,5 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+             L_primed.append(zeta*c_p)
+             L_primed.append(zeta/c_p)
+ 
++    # Step 16
+     return iter(LL + L_primed)
+-- 
+2.7.4
+
+
+From df98555b029c4def763e48794dd3212dc5c6b02d Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Wed, 30 May 2018 13:24:50 +0530
+Subject: [PATCH 04/18] 22771: Reformat code and replaced iter with yield
+
+---
+ src/sage/rings/number_field/bdd_height.py   | 104 ++++++++++++----------------
+ src/sage/rings/number_field/number_field.py |   8 +--
+ 2 files changed, 47 insertions(+), 65 deletions(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index 3300476..00f735d 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -10,10 +10,14 @@ AUTHORS:
+ 
+ - David Krumm (2013): initial version
+ 
++- TJ Combs (2018): added Doyle-Krumm algorithm - 4
++
++- Raghukul Raman (2018): added Doyle-Krumm algorithm - 4
++
+ REFERENCES:
+ 
+ ..  [Doyle-Krumm] John R. Doyle and David Krumm, Computing algebraic numbers
+-    of bounded height, :arxiv:`1111.4963` (2013).
++    of bounded height, :arxiv:`1111.4963v4` (2013).
+ """
+ #*****************************************************************************
+ #       Copyright (C) 2013 John Doyle and David Krumm
+@@ -116,7 +120,7 @@ def bdd_height_iq(K, height_bound):
+ 
+     ALGORITHM:
+ 
+-    This is an implementation of Algorithm 5 in [Doyle-Krumm].
++    This is an implementation of Algorithm 5 in [Doyle-Krumm]_.
+ 
+     INPUT:
+ 
+@@ -345,8 +349,8 @@ def integer_points_in_polytope(matrix, interval_radius):
+ 
+ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     r""" 
+-    Computes all elements in the number field `K` which have height at most
+-    ``height_bound``.
++    Computes all elements in the number field `K` which have relative
++    multiplicative height at most ``height_bound``.
+ 
+     The function can only be called for number fields `K` with positive unit
+     rank. An error will occur if `K` is `QQ` or an imaginary quadratic field.
+@@ -362,7 +366,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     ALGORITHM:
+ 
+     This is an implementation of the revised algorithm (Algorithm 4) in
+-    [Doyle-Krumm]_ .
++    [Doyle-Krumm]_.
+ 
+     INPUT:
+ 
+@@ -374,11 +378,6 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+ 
+     - an iterator of number field elements
+ 
+-    .. TODO::
+-    
+-        Need to add support for the case when `r=0` and
+-        `K` is `QQ`
+-
+     EXAMPLES:
+ 
+     There are no elements of negative height::
+@@ -430,7 +429,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     B = height_bound
+     theta = tolerance
+     if B < 1:
+-        return iter([])
++        return
+     embeddings = K.places(prec=precision)
+     O_K = K.ring_of_integers()
+     r1, r2 = K.signature(); r = r1 + r2 -1
+@@ -439,7 +438,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     class_group_rep_norm_log_approx = []
+     unit_log_dict = dict()
+ 
+-    def rational_in(x,y):
++    def rational_in(x, y):
+         r"""
+         Computes a rational number q, such that x<q<y using Archimedes' axiom
+         """
+@@ -454,21 +453,21 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+             m = RR(n*y).floor()
+         return m/n
+ 
+-    def delta_approximation(x,delta):
++    def delta_approximation(x, delta):
+         r"""
+-        Computes a rational number in range (x-delta,x+delta)
++        Computes a rational number in range (x-delta, x+delta)
+         """
+-        return rational_in(x-delta,x+delta)
++        return rational_in(x-delta, x+delta)
+ 
+-    def vector_delta_approximation(v,delta):
++    def vector_delta_approximation(v, delta):
+         r"""
+-        Computes a rational vector w=(w1,...,wn)
+-        such that |vi-wi|<delta for all i in [1,n]
++        Computes a rational vector w=(w1, ..., wn)
++        such that |vi-wi|<delta for all i in [1, n]
+         """
+         n = len(v)
+         w = []
+         for i in range(n):
+-            w.append(delta_approximation(v[i],delta))
++            w.append(delta_approximation(v[i], delta))
+         return w
+ 
+     def log_map(number):
+@@ -485,15 +484,15 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+             x_logs.append(2*tau(x).abs().log())
+         return vector(x_logs)
+ 
+-    def log_height_for_generators_approx(alpha,beta,Lambda):
++    def log_height_for_generators_approx(alpha, beta, Lambda):
+         r"""
+         Computes the rational approximation of logarithmic height function
+         Returns a lambda approximation h_K(alpha/beta)
+         """
+         delta = Lambda / (r+2)
+-        norm_log = delta_approximation(RR(O_K.ideal(alpha,beta).norm()).log(),delta)
+-        log_ga = vector_delta_approximation(log_map(alpha),delta)
+-        log_gb = vector_delta_approximation(log_map(beta),delta)
++        norm_log = delta_approximation(RR(O_K.ideal(alpha, beta).norm()).log(), delta)
++        log_ga = vector_delta_approximation(log_map(alpha), delta)
++        log_gb = vector_delta_approximation(log_map(beta), delta)
+         arch_sum = sum([max(log_ga[k], log_gb[k]) for k in range(r + 1)])
+         return (arch_sum - norm_log)
+ 
+@@ -521,7 +520,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+         a = c.ideal()
+         a_norm = a.norm()
+         log_norm = RF(a_norm).log()
+-        log_norm_approx = delta_approximation(log_norm,delta_1)
++        log_norm_approx = delta_approximation(log_norm, delta_1)
+         class_group_reps.append(a)
+         class_group_rep_norms.append(a_norm)
+         class_group_rep_norm_log_approx.append(log_norm_approx)
+@@ -532,7 +531,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     # Find generators for principal ideals of bounded norm
+     possible_norm_set = set([])
+     for n in range(class_number):
+-        for m in range(1,B+1):
++        for m in range(1, B+1):
+             possible_norm_set.add(m*class_group_rep_norms[n])
+     bdd_ideals = bdd_norm_pr_ideal_gens(K, possible_norm_set)
+ 
+@@ -540,7 +539,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     for norm in possible_norm_set:
+         gens = bdd_ideals[norm]
+         for g in gens:
+-            lambda_g_approx = vector_delta_approximation(log_map(g),delta_1)
++            lambda_g_approx = vector_delta_approximation(log_map(g), delta_1)
+             lambda_gens_approx[g] = lambda_g_approx
+ 
+ 
+@@ -568,10 +567,10 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+         gens = generator_lists[n]
+         l = len(gens)
+         for i in range(l):
+-            for j in range(i+1,l):
++            for j in range(i+1, l):
+                 if K.ideal(gens[i], gens[j]) == class_group_reps[n]:
+-                    relevant_pairs.append([i,j])
+-                    gen_height_approx_dictionary[(n,i,j)] = log_height_for_generators_approx(gens[i],gens[j],t/6)
++                    relevant_pairs.append([i, j])
++                    gen_height_approx_dictionary[(n, i, j)] = log_height_for_generators_approx(gens[i], gens[j], t/6)
+         relevant_pair_lists.append(relevant_pairs)
+ 
+ 
+@@ -580,7 +579,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     maximum = 0
+     for n in range(class_number):
+         for p in relevant_pair_lists[n]:
+-            maximum = max(maximum,gen_height_approx_dictionary[(n,p[0],p[1])])
++            maximum = max(maximum, gen_height_approx_dictionary[(n, p[0], p[1])])
+     d_tilde = b + t/6 + maximum
+ 
+ 
+@@ -593,7 +592,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     S_norm = S.norm(Infinity)
+     S_inverse_norm = S_inverse.norm(Infinity)
+ 
+-    upper_bound = (r**2) * max(S_norm,S_inverse_norm)
++    upper_bound = (r**2) * max(S_norm, S_inverse_norm)
+     m = RR(upper_bound).ceil() + 1
+ 
+ 
+@@ -603,12 +602,12 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     delta_tilde = min(lambda_tilde/((r**2)*((m**2)+m*lambda_tilde)), 1/(r**2))
+     M = d_tilde * (upper_bound+lambda_tilde*RR(r).sqrt())
+     M = RR(M).ceil()
+-    delta_2 = min(delta_tilde,(t/6)/(r*(r+1)*M))
++    delta_2 = min(delta_tilde, (t/6)/(r*(r+1)*M))
+ 
+ 
+-    # Step 8,9
++    # Step 8, 9
+     # Computes relevant points in polytope
+-    fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i],delta_2) for i in range(r)]
++    fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i], delta_2) for i in range(r)]
+     S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
+     S_tilde_inverse = S_tilde.inverse()
+     U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
+@@ -616,7 +615,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+ 
+     # Step 10
+     # tilde suffixed list are used for computing second list (L_primed)
+-    LL = [K(0)]
++    yield K(0)
+     U0 = []
+     U0_tilde = []
+     L0 = []
+@@ -650,20 +649,20 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     for n in range(class_number):
+         for pair in relevant_pair_lists[n]:
+             i = pair[0]; j = pair[1]
+-            u_height_bound = b + gen_height_approx_dictionary[(n,i,j)] + t/4
++            u_height_bound = b + gen_height_approx_dictionary[(n, i, j)] + t/4
+             for u in U:
+                 if unit_height_dict[u] < u_height_bound:
+-                    candidate_height = packet_height(n,pair,u)
++                    candidate_height = packet_height(n, pair, u)
+                     if candidate_height <= b - (7/12)*t:
+-                        L0.append([n,pair,u])
++                        L0.append([n, pair, u])
+                         relevant_tuples.add(u);
+                     if candidate_height > b - (7/12)*t and candidate_height < b + t/4:
+-                        L0_tilde.append([n,pair,u])
++                        L0_tilde.append([n, pair, u])
+                         relevant_tuples.add(u);
+ 
+ 
+     # Step 13
+-    # forms a dictionary of all_unit_tuples and thier value
++    # forms a dictionary of all_unit_tuples and their value
+     tuple_to_unit_dict = dict()
+     for u in relevant_tuples:
+         unit = K(1)
+@@ -674,33 +673,18 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+ 
+     # Step 14
+     # Build all output numbers
+-    L_primed = [] # This list contain points such that abs(H_k(u)-B) < tolerance
+     roots_of_unity = K.roots_of_unity()
+-    for u in U0:
+-        for zeta in roots_of_unity:
+-            LL.append(zeta*tuple_to_unit_dict[u])
+-    for u in U0_tilde:
++    for u in U0 + U0_tilde:
+         for zeta in roots_of_unity:
+-            L_primed.append(zeta*tuple_to_unit_dict[u])
++            yield zeta*tuple_to_unit_dict[u]
+ 
+ 
+     # Step 15
+-    for p in L0:
++    for p in L0 + L0_tilde:
+         gens = generator_lists[p[0]]
+         i = p[1][0]; j = p[1][1]
+         u = p[2]
+         c_p = tuple_to_unit_dict[u] * (gens[i]/gens[j])
+         for zeta in roots_of_unity:
+-            LL.append(zeta*c_p)
+-            LL.append(zeta/c_p)
+-    for p in L0_tilde:
+-        gens = generator_lists[p[0]]
+-        i = p[1][0]; j = p[1][1]
+-        u = p[2]
+-        c_p = tuple_to_unit_dict[u] * (gens[i]/gens[j])
+-        for zeta in roots_of_unity:
+-            L_primed.append(zeta*c_p)
+-            L_primed.append(zeta/c_p)
+-
+-    # Step 16
+-    return iter(LL + L_primed)
++            yield zeta*c_p
++            yield zeta/c_p
+diff --git a/src/sage/rings/number_field/number_field.py b/src/sage/rings/number_field/number_field.py
+index bab564d..865ffa3 100644
+--- a/src/sage/rings/number_field/number_field.py
++++ b/src/sage/rings/number_field/number_field.py
+@@ -9278,7 +9278,7 @@ class NumberField_absolute(NumberField_generic):
+                 d *= p
+         return d
+ 
+-    def elements_of_bounded_height(self,bound,tolerance=0.2,precision=53):
++    def elements_of_bounded_height(self, bound, tolerance=0.2, precision=53):
+         r"""
+         Return an iterator over the elements of ``self`` with relative
+         multiplicative height at most ``bound``.
+@@ -9286,10 +9286,6 @@ class NumberField_absolute(NumberField_generic):
+         The algorithm requires floating point arithmetic, so the user is
+         allowed to specify the precision for such calculations.
+ 
+-        It might be helpful to work with an LLL-reduced system of fundamental
+-        units, so the user has the option to perform an LLL reduction for the
+-        fundamental units by setting ``LLL`` to True.
+-
+         Certain computations may be faster assuming GRH, which may be done
+         globally by using the number_field(True/False) switch.
+ 
+@@ -9298,7 +9294,9 @@ class NumberField_absolute(NumberField_generic):
+         INPUT:
+ 
+         - ``bound`` - a real number
++
+         - ``tolerance`` - a rational number in (0,1]
++
+         - ``precision`` - (default: 53) a positive integer
+ 
+         OUTPUT:
+-- 
+2.7.4
+
+
+From cf747baee45da6dec2544117e8bd51c596987422 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Thu, 31 May 2018 11:58:21 +0530
+Subject: [PATCH 05/18] 22771: Fixed conversion of d_tilde to RR
+
+---
+ src/sage/rings/number_field/bdd_height.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index 00f735d..0c4826a 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -610,7 +610,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i], delta_2) for i in range(r)]
+     S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
+     S_tilde_inverse = S_tilde.inverse()
+-    U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
++    U = integer_points_in_polytope(S_tilde_inverse, RR(d_tilde))
+ 
+ 
+     # Step 10
+-- 
+2.7.4
+
+
+From 387694dc161f6c39e40f75baf82f983e42fbc527 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 4 Jun 2018 20:25:20 +0530
+Subject: [PATCH 06/18] converted d_tilde globally to RR
+
+---
+ src/sage/rings/number_field/bdd_height.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index 0c4826a..4a96ef4 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -602,6 +602,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     delta_tilde = min(lambda_tilde/((r**2)*((m**2)+m*lambda_tilde)), 1/(r**2))
+     M = d_tilde * (upper_bound+lambda_tilde*RR(r).sqrt())
+     M = RR(M).ceil()
++    d_tilde = RR(d_tilde)
+     delta_2 = min(delta_tilde, (t/6)/(r*(r+1)*M))
+ 
+ 
+@@ -610,7 +611,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     fund_unit_log_approx = [vector_delta_approximation(fund_unit_logs[i], delta_2) for i in range(r)]
+     S_tilde = column_matrix(fund_unit_log_approx).delete_rows([r])
+     S_tilde_inverse = S_tilde.inverse()
+-    U = integer_points_in_polytope(S_tilde_inverse, RR(d_tilde))
++    U = integer_points_in_polytope(S_tilde_inverse, d_tilde)
+ 
+ 
+     # Step 10
+-- 
+2.7.4
+
+
+From 8d158307af7eed463f216b3fa22b27ae455135ef Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Tue, 5 Jun 2018 02:16:40 +0530
+Subject: [PATCH 07/18] 22771: Fixed Caculation of relative height
+
+---
+ src/sage/schemes/affine/affine_space.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/sage/schemes/affine/affine_space.py b/src/sage/schemes/affine/affine_space.py
+index a90799f..ec8cc20 100644
+--- a/src/sage/schemes/affine/affine_space.py
++++ b/src/sage/schemes/affine/affine_space.py
+@@ -927,8 +927,8 @@ class AffineSpace_field(AffineSpace_generic):
+ 
+             sage: u = QQ['u'].0
+             sage: A.<x,y> = AffineSpace(NumberField(u^2 - 2, 'v'), 2)
+-            sage: len(list(A.points_of_bounded_height(6)))
+-            121
++            sage: len(list(A.points_of_bounded_height(2)))
++            529
+         """
+         if (is_RationalField(self.base_ring())):
+             ftype = False # stores whether field is a number field or the rational field
+@@ -937,7 +937,7 @@ class AffineSpace_field(AffineSpace_generic):
+         else:
+             raise NotImplementedError("self must be affine space over a number field.")
+ 
+-        bound = bound**(1/self.base_ring().absolute_degree()) # convert to relative height
++        bound = bound**self.base_ring().absolute_degree() # convert to relative height
+ 
+         n = self.dimension_relative()
+         R = self.base_ring()
+-- 
+2.7.4
+
+
+From 0b0101dd8ea240922d59247bee81a6d732dd5007 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Fri, 8 Jun 2018 14:52:53 +0530
+Subject: [PATCH 08/18] Corrected doctest
+
+---
+ src/sage/rings/number_field/number_field.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/sage/rings/number_field/number_field.py b/src/sage/rings/number_field/number_field.py
+index 865ffa3..aa3b573 100644
+--- a/src/sage/rings/number_field/number_field.py
++++ b/src/sage/rings/number_field/number_field.py
+@@ -9373,7 +9373,7 @@ class NumberField_absolute(NumberField_generic):
+             sage: K.<a> = NumberField(x^4 - 5)
+             sage: L = K.elements_of_bounded_height(50)
+             sage: len(list(L)) # long time (2 s)
+-            2163
++            2171
+ 
+         ::
+ 
+-- 
+2.7.4
+
+
+From a7f67be863b868ba21aba15a94ed4a8c5b02132f Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Fri, 8 Jun 2018 21:19:30 +0530
+Subject: [PATCH 09/18] updated universal value of tolerance parameter
+
+---
+ src/sage/rings/number_field/bdd_height.py   | 2 +-
+ src/sage/rings/number_field/number_field.py | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index 4a96ef4..9df11ab 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -371,7 +371,7 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     INPUT:
+ 
+     - ``height_bound`` - real number
+-    - ``tolerance`` - a rational number in (0,1]
++    - ``tolerance`` - (default: 0.01) a rational number in (0,1]
+     - ``precision`` - (default: 53) positive integer
+ 
+     OUTPUT:
+diff --git a/src/sage/rings/number_field/number_field.py b/src/sage/rings/number_field/number_field.py
+index aa3b573..21c9b28 100644
+--- a/src/sage/rings/number_field/number_field.py
++++ b/src/sage/rings/number_field/number_field.py
+@@ -9278,7 +9278,7 @@ class NumberField_absolute(NumberField_generic):
+                 d *= p
+         return d
+ 
+-    def elements_of_bounded_height(self, bound, tolerance=0.2, precision=53):
++    def elements_of_bounded_height(self, bound, tolerance=1e-2, precision=53):
+         r"""
+         Return an iterator over the elements of ``self`` with relative
+         multiplicative height at most ``bound``.
+@@ -9295,7 +9295,7 @@ class NumberField_absolute(NumberField_generic):
+ 
+         - ``bound`` - a real number
+ 
+-        - ``tolerance`` - a rational number in (0,1]
++        - ``tolerance`` - (default: 0.01) a rational number in (0,1]
+ 
+         - ``precision`` - (default: 53) a positive integer
+ 
+@@ -9373,7 +9373,7 @@ class NumberField_absolute(NumberField_generic):
+             sage: K.<a> = NumberField(x^4 - 5)
+             sage: L = K.elements_of_bounded_height(50)
+             sage: len(list(L)) # long time (2 s)
+-            2171
++            2163
+ 
+         ::
+ 
+-- 
+2.7.4
+
+
+From de787e071b6e16747a83108acb4c06e3bc08ce91 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Sat, 9 Jun 2018 17:55:02 +0530
+Subject: [PATCH 10/18] 22771: Corrected doctest in affine_homset and
+ affine_rational_points
+
+---
+ src/sage/schemes/affine/affine_homset.py         | 4 ++--
+ src/sage/schemes/affine/affine_rational_point.py | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/sage/schemes/affine/affine_homset.py b/src/sage/schemes/affine/affine_homset.py
+index bac3b87..54bb929 100644
+--- a/src/sage/schemes/affine/affine_homset.py
++++ b/src/sage/schemes/affine/affine_homset.py
+@@ -156,8 +156,8 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+             sage: u = QQ['u'].0
+             sage: K.<v> = NumberField(u^2 + 3)
+             sage: A.<x,y> = AffineSpace(K, 2)
+-            sage: len(A(K).points(9))
+-            361
++            sage: len(A(K).points(2))
++            1849
+ 
+         ::
+ 
+diff --git a/src/sage/schemes/affine/affine_rational_point.py b/src/sage/schemes/affine/affine_rational_point.py
+index c5052dd..427da53 100644
+--- a/src/sage/schemes/affine/affine_rational_point.py
++++ b/src/sage/schemes/affine/affine_rational_point.py
+@@ -175,7 +175,7 @@ def enum_affine_number_field(X, B):
+         sage: K = NumberField(u^2 + 2, 'v')
+         sage: A.<x,y,z> = AffineSpace(K, 3)
+         sage: X = A.subscheme([y^2 - x])
+-        sage: enum_affine_number_field(X(K), 4)
++        sage: enum_affine_number_field(X(K), 2**0.5)
+         [(0, 0, -1), (0, 0, -v), (0, 0, -1/2*v), (0, 0, 0), (0, 0, 1/2*v), (0, 0, v), (0, 0, 1),
+         (1, -1, -1), (1, -1, -v), (1, -1, -1/2*v), (1, -1, 0), (1, -1, 1/2*v), (1, -1, v), (1, -1, 1),
+         (1, 1, -1), (1, 1, -v), (1, 1, -1/2*v), (1, 1, 0), (1, 1, 1/2*v), (1, 1, v), (1, 1, 1)]
+@@ -187,7 +187,7 @@ def enum_affine_number_field(X, B):
+         sage: A.<x,y> = AffineSpace(K, 2)
+         sage: X=A.subscheme(x-y)
+         sage: from sage.schemes.affine.affine_rational_point import enum_affine_number_field
+-        sage: enum_affine_number_field(X, 3)
++        sage: enum_affine_number_field(X, 3**0.25)
+         [(-1, -1), (-1/2*v - 1/2, -1/2*v - 1/2), (1/2*v - 1/2, 1/2*v - 1/2), (0, 0), (-1/2*v + 1/2, -1/2*v + 1/2),
+         (1/2*v + 1/2, 1/2*v + 1/2), (1, 1)]
+     """
+-- 
+2.7.4
+
+
+From c37305b979eaffea41e0692632a4ac7fdd17f9a6 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Sat, 9 Jun 2018 19:19:00 +0530
+Subject: [PATCH 11/18] Docstring updated
+
+---
+ src/sage/rings/number_field/bdd_height.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index 9df11ab..ff60cc0 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -362,6 +362,8 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     In current implementation both lists (L,L') are merged and returned in
+     form of iterator.
+ 
++    Due to floating point issues one may get extra points which can be
++    corrected by lowering the tolerance.
+ 
+     ALGORITHM:
+ 
+-- 
+2.7.4
+
+
+From b793a20d4e8b3b1f5bc3c1760436bde21f966c26 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 02:11:04 +0530
+Subject: [PATCH 12/18] Warning block removed from indirect calls
+
+---
+ src/sage/rings/number_field/number_field.py              | 9 ---------
+ src/sage/schemes/product_projective/homset.py            | 8 --------
+ src/sage/schemes/product_projective/space.py             | 8 --------
+ src/sage/schemes/projective/projective_homset.py         | 8 --------
+ src/sage/schemes/projective/projective_rational_point.py | 8 --------
+ src/sage/schemes/projective/projective_space.py          | 8 --------
+ 6 files changed, 49 deletions(-)
+
+diff --git a/src/sage/rings/number_field/number_field.py b/src/sage/rings/number_field/number_field.py
+index 21c9b28..98a58c3 100644
+--- a/src/sage/rings/number_field/number_field.py
++++ b/src/sage/rings/number_field/number_field.py
+@@ -9303,15 +9303,6 @@ class NumberField_absolute(NumberField_generic):
+ 
+         - an iterator of number field elements
+ 
+-        .. WARNING::
+-
+-           In the current implementation, the output of the algorithm cannot be
+-           guaranteed to be correct due to the necessity of floating point
+-           computations. In some cases, the default 53-bit precision is
+-           considerably lower than would be required for the algorithm to
+-           generate correct output.
+-
+-
+         EXAMPLES:
+ 
+         There are no elements in a number field with multiplicative height less
+diff --git a/src/sage/schemes/product_projective/homset.py b/src/sage/schemes/product_projective/homset.py
+index d0773b7..5540909 100644
+--- a/src/sage/schemes/product_projective/homset.py
++++ b/src/sage/schemes/product_projective/homset.py
+@@ -77,14 +77,6 @@ class SchemeHomset_points_product_projective_spaces_field(SchemeHomset_points_pr
+ 
+         - a list of rational points of a projective scheme.
+ 
+-        .. WARNING::
+-
+-           In the current implementation, the output of the [Doyle-Krumm]_ algorithm
+-           cannot be guaranteed to be correct due to the necessity of floating point
+-           computations. In some cases, the default 53-bit precision is
+-           considerably lower than would be required for the algorithm to
+-           generate correct output.
+-
+         EXAMPLES::
+ 
+             sage: P.<x,y,z,w> = ProductProjectiveSpaces([1, 1], QQ)
+diff --git a/src/sage/schemes/product_projective/space.py b/src/sage/schemes/product_projective/space.py
+index 6315e82..50c285a 100644
+--- a/src/sage/schemes/product_projective/space.py
++++ b/src/sage/schemes/product_projective/space.py
+@@ -1134,14 +1134,6 @@ class ProductProjectiveSpaces_field(ProductProjectiveSpaces_ring):
+ 
+         - an iterator of points in this space
+ 
+-        .. WARNING::
+-
+-           In the current implementation, the output of the [Doyle-Krumm]_ algorithm
+-           cannot be guaranteed to be correct due to the necessity of floating point
+-           computations. In some cases, the default 53-bit precision is
+-           considerably lower than would be required for the algorithm to
+-           generate correct output.
+-
+         EXAMPLES::
+ 
+             sage: PP = ProductProjectiveSpaces(QQ, [1, 2])
+diff --git a/src/sage/schemes/projective/projective_homset.py b/src/sage/schemes/projective/projective_homset.py
+index 2ac7db7..e740f65 100644
+--- a/src/sage/schemes/projective/projective_homset.py
++++ b/src/sage/schemes/projective/projective_homset.py
+@@ -80,14 +80,6 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+         returned. Over an infinite field, all points satisfying the
+         bound are returned.
+ 
+-        .. WARNING::
+-
+-           In the current implementation, the output of the [Doyle-Krumm] algorithm
+-           cannot be guaranteed to be correct due to the necessity of floating point
+-           computations. In some cases, the default 53-bit precision is
+-           considerably lower than would be required for the algorithm to
+-           generate correct output.
+-
+         EXAMPLES::
+ 
+             sage: P.<x,y> = ProjectiveSpace(QQ,1)
+diff --git a/src/sage/schemes/projective/projective_rational_point.py b/src/sage/schemes/projective/projective_rational_point.py
+index e778d64..e810bf5 100644
+--- a/src/sage/schemes/projective/projective_rational_point.py
++++ b/src/sage/schemes/projective/projective_rational_point.py
+@@ -160,14 +160,6 @@ def enum_projective_number_field(X,B, prec=53):
+      - a list containing the projective points of ``X`` of absolute height up to ``B``,
+        sorted.
+ 
+-    .. WARNING::
+-
+-       In the current implementation, the output of the [Doyle-Krumm] algorithm
+-       for elements of bounded height cannot be guaranteed to be correct due to
+-       the necessity of floating point computations. In some cases, the default
+-       53-bit precision is considerably lower than would be required for the
+-       algorithm to generate correct output.
+-
+     EXAMPLES::
+ 
+         sage: from sage.schemes.projective.projective_rational_point import enum_projective_number_field
+diff --git a/src/sage/schemes/projective/projective_space.py b/src/sage/schemes/projective/projective_space.py
+index 3af27b8..200335f 100644
+--- a/src/sage/schemes/projective/projective_space.py
++++ b/src/sage/schemes/projective/projective_space.py
+@@ -1285,14 +1285,6 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+ 
+         - an iterator of points in this space.
+ 
+-        .. WARNING::
+-
+-           In the current implementation, the output of the [Doyle-Krumm]_ algorithm
+-           cannot be guaranteed to be correct due to the necessity of floating point
+-           computations. In some cases, the default 53-bit precision is
+-           considerably lower than would be required for the algorithm to
+-           generate correct output.
+-
+         EXAMPLES::
+ 
+             sage: P.<x,y> = ProjectiveSpace(QQ, 1)
+-- 
+2.7.4
+
+
+From ef6a8c9004314bcdf41abade83c50e75bb19e53a Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 02:14:01 +0530
+Subject: [PATCH 13/18] Tolerance warning corrected
+
+---
+ src/sage/rings/number_field/bdd_height.py | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index ff60cc0..fbab5a3 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -357,14 +357,13 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+ 
+     This algorithm computes 2 lists: L containing elements x in `K` such that
+     H_k(x) <= B, and a list L' containing elements x in `K` such that
+-    abs(H_k(x) - B) < tolerance.
++    abs(H_k(x) - B) < tolerance. However, due to floating point issues
++    one may get points larger than specified bound which can be corrected
++    by lowering the tolerance.
+ 
+     In current implementation both lists (L,L') are merged and returned in
+     form of iterator.
+ 
+-    Due to floating point issues one may get extra points which can be
+-    corrected by lowering the tolerance.
+-
+     ALGORITHM:
+ 
+     This is an implementation of the revised algorithm (Algorithm 4) in
+-- 
+2.7.4
+
+
+From 38df68e16a0065dfd1bb5c3a53c00c6e2e3ab4a9 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 02:24:00 +0530
+Subject: [PATCH 14/18] Input space added
+
+---
+ src/sage/rings/number_field/bdd_height.py | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/sage/rings/number_field/bdd_height.py b/src/sage/rings/number_field/bdd_height.py
+index fbab5a3..9a989f8 100644
+--- a/src/sage/rings/number_field/bdd_height.py
++++ b/src/sage/rings/number_field/bdd_height.py
+@@ -59,6 +59,7 @@ def bdd_norm_pr_gens_iq(K, norm_list):
+     INPUT:
+ 
+     - `K` - an imaginary quadratic number field
++
+     - ``norm_list`` - a list of positive integers
+ 
+     OUTPUT:
+@@ -125,6 +126,7 @@ def bdd_height_iq(K, height_bound):
+     INPUT:
+ 
+     - `K` - an imaginary quadratic number field
++
+     - ``height_bound`` - a real number
+ 
+     OUTPUT:
+@@ -231,6 +233,7 @@ def bdd_norm_pr_ideal_gens(K, norm_list):
+     INPUT:
+ 
+     - `K` - a number field
++
+     - ``norm_list`` - a list of positive integers
+ 
+     OUTPUT:
+@@ -291,6 +294,7 @@ def integer_points_in_polytope(matrix, interval_radius):
+     INPUT:
+ 
+     - ``matrix`` - a square matrix of real numbers
++
+     - ``interval_radius`` - a real number
+ 
+     OUTPUT:
+@@ -372,7 +376,9 @@ def bdd_height(K, height_bound, tolerance=1e-2, precision=53):
+     INPUT:
+ 
+     - ``height_bound`` - real number
++
+     - ``tolerance`` - (default: 0.01) a rational number in (0,1]
++
+     - ``precision`` - (default: 53) positive integer
+ 
+     OUTPUT:
+-- 
+2.7.4
+
+
+From 38e9d0db7e0c745f53690dc51e06b6ffd92c5e12 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 19:03:30 +0530
+Subject: [PATCH 15/18] Added keyword function parameters to
+ elements_of_bounded_height
+
+---
+ src/sage/rings/number_field/number_field.py     | 31 ++++++++++++++-----------
+ src/sage/schemes/affine/affine_space.py         | 10 ++++----
+ src/sage/schemes/projective/projective_space.py | 10 ++++----
+ 3 files changed, 28 insertions(+), 23 deletions(-)
+
+diff --git a/src/sage/rings/number_field/number_field.py b/src/sage/rings/number_field/number_field.py
+index 98a58c3..c53fde5 100644
+--- a/src/sage/rings/number_field/number_field.py
++++ b/src/sage/rings/number_field/number_field.py
+@@ -9278,7 +9278,7 @@ class NumberField_absolute(NumberField_generic):
+                 d *= p
+         return d
+ 
+-    def elements_of_bounded_height(self, bound, tolerance=1e-2, precision=53):
++    def elements_of_bounded_height(self, **kwds):
+         r"""
+         Return an iterator over the elements of ``self`` with relative
+         multiplicative height at most ``bound``.
+@@ -9293,6 +9293,8 @@ class NumberField_absolute(NumberField_generic):
+ 
+         INPUT:
+ 
++        kwds:
++
+         - ``bound`` - a real number
+ 
+         - ``tolerance`` - (default: 0.01) a rational number in (0,1]
+@@ -9309,27 +9311,27 @@ class NumberField_absolute(NumberField_generic):
+         than 1::
+ 
+             sage: K.<g> = NumberField(x^5 - x + 19)
+-            sage: list(K.elements_of_bounded_height(0.9))
++            sage: list(K.elements_of_bounded_height(bound=0.9))
+             []
+ 
+         The only elements in a number field of height 1 are 0 and the roots of
+         unity::
+ 
+             sage: K.<a> = NumberField(x^2 + x + 1)
+-            sage: list(K.elements_of_bounded_height(1))
++            sage: list(K.elements_of_bounded_height(bound=1))
+             [0, a + 1, a, -1, -a - 1, -a, 1]
+ 
+         ::
+ 
+             sage: K.<a> = CyclotomicField(20)
+-            sage: len(list(K.elements_of_bounded_height(1)))
++            sage: len(list(K.elements_of_bounded_height(bound=1)))
+             21
+ 
+         The elements in the output iterator all have relative multiplicative
+         height at most the input bound::
+ 
+             sage: K.<a> = NumberField(x^6 + 2)
+-            sage: L = K.elements_of_bounded_height(5)
++            sage: L = K.elements_of_bounded_height(bound=5)
+             sage: for t in L:
+             ....:     exp(6*t.global_height())
+             ....:
+@@ -9348,42 +9350,42 @@ class NumberField_absolute(NumberField_generic):
+         ::
+ 
+             sage: K.<a> = NumberField(x^2 - 71)
+-            sage: L = K.elements_of_bounded_height(20)
++            sage: L = K.elements_of_bounded_height(bound=20)
+             sage: all(exp(2*t.global_height()) <= 20 for t in L) # long time (5 s)
+             True
+ 
+         ::
+ 
+             sage: K.<a> = NumberField(x^2 + 17)
+-            sage: L = K.elements_of_bounded_height(120)
++            sage: L = K.elements_of_bounded_height(bound=120)
+             sage: len(list(L))
+             9047
+ 
+         ::
+ 
+             sage: K.<a> = NumberField(x^4 - 5)
+-            sage: L = K.elements_of_bounded_height(50)
++            sage: L = K.elements_of_bounded_height(bound=50)
+             sage: len(list(L)) # long time (2 s)
+             2163
+ 
+         ::
+ 
+             sage: K.<a> = CyclotomicField(13)
+-            sage: L = K.elements_of_bounded_height(2)
++            sage: L = K.elements_of_bounded_height(bound=2)
+             sage: len(list(L)) # long time (3 s)
+             27
+ 
+         ::
+ 
+             sage: K.<a> = NumberField(x^6 + 2)
+-            sage: L = K.elements_of_bounded_height(60, precision=100)
++            sage: L = K.elements_of_bounded_height(bound=60, precision=100)
+             sage: len(list(L)) # long time (5 s)
+             1899
+ 
+         ::
+ 
+             sage: K.<a> = NumberField(x^4 - x^3 - 3*x^2 + x + 1)
+-            sage: L = K.elements_of_bounded_height(10, tolerance=0.1)
++            sage: L = K.elements_of_bounded_height(bound=10, tolerance=0.1)
+             sage: len(list(L))
+             99
+ 
+@@ -9396,10 +9398,13 @@ class NumberField_absolute(NumberField_generic):
+         from sage.rings.number_field.bdd_height import bdd_height, bdd_height_iq
+         r1, r2 = self.signature()
+         r = r1 + r2 - 1
++        B = kwds.pop('bound')
+         if self.degree() == 2 and r == 0:
+-            return bdd_height_iq(self, bound)
++            return bdd_height_iq(self, B)
+         else:
+-            return bdd_height(self, bound, tolerance, precision)
++            tol = kwds.pop('tolerance', 1e-2)
++            prec = kwds.pop('precision', 53)
++            return bdd_height(self, B, tol, prec)
+ 
+ class NumberField_cyclotomic(NumberField_absolute):
+     """
+diff --git a/src/sage/schemes/affine/affine_space.py b/src/sage/schemes/affine/affine_space.py
+index ec8cc20..75473f2 100644
+--- a/src/sage/schemes/affine/affine_space.py
++++ b/src/sage/schemes/affine/affine_space.py
+@@ -937,7 +937,7 @@ class AffineSpace_field(AffineSpace_generic):
+         else:
+             raise NotImplementedError("self must be affine space over a number field.")
+ 
+-        bound = bound**self.base_ring().absolute_degree() # convert to relative height
++        B = bound**self.base_ring().absolute_degree() # convert to relative height
+ 
+         n = self.dimension_relative()
+         R = self.base_ring()
+@@ -945,9 +945,9 @@ class AffineSpace_field(AffineSpace_generic):
+         P = [ zero for _ in range(n) ]
+         yield self(P)
+         if not ftype:
+-            iters = [ R.range_by_height(bound) for _ in range(n) ]
++            iters = [ R.range_by_height(B) for _ in range(n) ]
+         else:
+-            iters = [ R.elements_of_bounded_height(bound) for _ in range(n) ]
++            iters = [ R.elements_of_bounded_height(bound=B) for _ in range(n) ]
+         for x in iters: next(x) # put at zero
+         i = 0
+         while i < n:
+@@ -957,9 +957,9 @@ class AffineSpace_field(AffineSpace_generic):
+                 i = 0
+             except StopIteration:
+                 if not ftype:
+-                    iters[i] = R.range_by_height(bound) # reset
++                    iters[i] = R.range_by_height(B) # reset
+                 else:
+-                    iters[i] = R.elements_of_bounded_height(bound)
++                    iters[i] = R.elements_of_bounded_height(bound=B)
+                 next(iters[i]) # put at zero
+                 P[i] = zero
+                 i += 1
+diff --git a/src/sage/schemes/projective/projective_space.py b/src/sage/schemes/projective/projective_space.py
+index 200335f..5d7d8a6 100644
+--- a/src/sage/schemes/projective/projective_space.py
++++ b/src/sage/schemes/projective/projective_space.py
+@@ -1307,7 +1307,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+         else:
+             raise NotImplementedError("self must be projective space over a number field")
+ 
+-        bound = bound**(self.base_ring().absolute_degree()) # convert to relative height
++        B = bound**(self.base_ring().absolute_degree()) # convert to relative height
+ 
+         n = self.dimension_relative()
+         R = self.base_ring()
+@@ -1317,9 +1317,9 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+             P = [ zero for _ in range(i) ] + [ R(1) ] + [ zero for _ in range(n-i) ]
+             yield self(P)
+             if not ftype: # if rational field
+-                iters = [ R.range_by_height(bound) for _ in range(i) ]
++                iters = [ R.range_by_height(B) for _ in range(i) ]
+             else: # if number field
+-                iters = [ R.elements_of_bounded_height(bound, precision=prec) for _ in range(i) ]
++                iters = [ R.elements_of_bounded_height(bound=B, precision=prec) for _ in range(i) ]
+             for x in iters: next(x) # put at zero
+             j = 0
+             while j < i:
+@@ -1329,9 +1329,9 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+                     j = 0
+                 except StopIteration:
+                     if not ftype: # if rational field
+-                        iters[j] = R.range_by_height(bound) # reset
++                        iters[j] = R.range_by_height(B) # reset
+                     else: # if number field
+-                        iters[j] = R.elements_of_bounded_height(bound, precision=prec) # reset
++                        iters[j] = R.elements_of_bounded_height(bound=B, precision=prec) # reset
+                     next(iters[j]) # put at zero
+                     P[j] = zero
+                     j += 1
+-- 
+2.7.4
+
+
+From 68f5ef90ac5fffaa8235a1760aa5a8172c784e36 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 19:15:32 +0530
+Subject: [PATCH 16/18] Added keywords for points_of_bounded_height in
+ projective space
+
+---
+ .../schemes/projective/projective_rational_point.py |  2 +-
+ src/sage/schemes/projective/projective_space.py     | 21 ++++++++++++++-------
+ 2 files changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/src/sage/schemes/projective/projective_rational_point.py b/src/sage/schemes/projective/projective_rational_point.py
+index e810bf5..9cb97a9 100644
+--- a/src/sage/schemes/projective/projective_rational_point.py
++++ b/src/sage/schemes/projective/projective_rational_point.py
+@@ -194,7 +194,7 @@ def enum_projective_number_field(X,B, prec=53):
+ 
+     pts = []
+ 
+-    for P in R.points_of_bounded_height(B, prec):
++    for P in R.points_of_bounded_height(bound=B, precision=prec):
+         try:
+             pts.append(X(P))
+         except TypeError:
+diff --git a/src/sage/schemes/projective/projective_space.py b/src/sage/schemes/projective/projective_space.py
+index 5d7d8a6..f47f8af 100644
+--- a/src/sage/schemes/projective/projective_space.py
++++ b/src/sage/schemes/projective/projective_space.py
+@@ -1267,7 +1267,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+         """
+         return SchemeMorphism_polynomial_projective_space_field(*args, **kwds)
+ 
+-    def points_of_bounded_height(self, bound, prec=53):
++    def points_of_bounded_height(self, **kwds):
+         r"""
+         Returns an iterator of the points in self of absolute height of at most the given bound.
+ 
+@@ -1277,9 +1277,13 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+ 
+         INPUT:
+ 
+-        - ``bound`` - a real number.
++        kwds:
+ 
+-        - ``prec`` - the precision to use to compute the elements of bounded height for number fields.
++        - ``bound`` - a real number
++
++        - ``tolerance`` - (default: 0.01) a rational number in (0,1]
++
++        - ``precision`` - (default: 53) a positive integer
+ 
+         OUTPUT:
+ 
+@@ -1288,7 +1292,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+         EXAMPLES::
+ 
+             sage: P.<x,y> = ProjectiveSpace(QQ, 1)
+-            sage: list(P.points_of_bounded_height(5))
++            sage: list(P.points_of_bounded_height(bound=5))
+             [(0 : 1), (1 : 1), (-1 : 1), (1/2 : 1), (-1/2 : 1), (2 : 1), (-2 : 1), (1/3 : 1),
+             (-1/3 : 1), (3 : 1), (-3 : 1), (2/3 : 1), (-2/3 : 1), (3/2 : 1), (-3/2 : 1), (1/4 : 1),
+             (-1/4 : 1), (4 : 1), (-4 : 1), (3/4 : 1), (-3/4 : 1), (4/3 : 1), (-4/3 : 1), (1 : 0)]
+@@ -1297,7 +1301,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+ 
+             sage: u = QQ['u'].0
+             sage: P.<x,y,z> = ProjectiveSpace(NumberField(u^2 - 2, 'v'), 2)
+-            sage: len(list(P.points_of_bounded_height(1.5)))
++            sage: len(list(P.points_of_bounded_height(bound=1.5)))
+             57
+         """
+         if (is_RationalField(self.base_ring())):
+@@ -1307,6 +1311,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+         else:
+             raise NotImplementedError("self must be projective space over a number field")
+ 
++        bound = kwds.pop('bound')
+         B = bound**(self.base_ring().absolute_degree()) # convert to relative height
+ 
+         n = self.dimension_relative()
+@@ -1319,7 +1324,9 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+             if not ftype: # if rational field
+                 iters = [ R.range_by_height(B) for _ in range(i) ]
+             else: # if number field
+-                iters = [ R.elements_of_bounded_height(bound=B, precision=prec) for _ in range(i) ]
++                tol = kwds.pop('tolerance', 1e-2)
++                prec = kwds.pop('precision', 53)
++                iters = [ R.elements_of_bounded_height(bound=B, tolerance=tol, precision=prec) for _ in range(i) ]
+             for x in iters: next(x) # put at zero
+             j = 0
+             while j < i:
+@@ -1331,7 +1338,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+                     if not ftype: # if rational field
+                         iters[j] = R.range_by_height(B) # reset
+                     else: # if number field
+-                        iters[j] = R.elements_of_bounded_height(bound=B, precision=prec) # reset
++                        iters[j] = R.elements_of_bounded_height(bound=B, tolerance=tol, precision=prec) # reset
+                     next(iters[j]) # put at zero
+                     P[j] = zero
+                     j += 1
+-- 
+2.7.4
+
+
+From 081855e3080c6259d2494bb58e5652ada9bda5d4 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 19:28:17 +0530
+Subject: [PATCH 17/18] Added keywords for points_of_bounded_height fn in
+ affine space
+
+---
+ src/sage/schemes/affine/affine_rational_point.py |  2 +-
+ src/sage/schemes/affine/affine_space.py          | 20 +++++++++++++-------
+ 2 files changed, 14 insertions(+), 8 deletions(-)
+
+diff --git a/src/sage/schemes/affine/affine_rational_point.py b/src/sage/schemes/affine/affine_rational_point.py
+index 427da53..e0cf56e 100644
+--- a/src/sage/schemes/affine/affine_rational_point.py
++++ b/src/sage/schemes/affine/affine_rational_point.py
+@@ -203,7 +203,7 @@ def enum_affine_number_field(X, B):
+     R = X.codomain().ambient_space()
+ 
+     pts = []
+-    for P in R.points_of_bounded_height(B):
++    for P in R.points_of_bounded_height(bound=B):
+         try:
+             pts.append(X(P))
+         except TypeError:
+diff --git a/src/sage/schemes/affine/affine_space.py b/src/sage/schemes/affine/affine_space.py
+index 75473f2..b7f0170 100644
+--- a/src/sage/schemes/affine/affine_space.py
++++ b/src/sage/schemes/affine/affine_space.py
+@@ -893,7 +893,7 @@ class AffineSpace_field(AffineSpace_generic):
+         """
+         return SchemeMorphism_polynomial_affine_space_field(*args, **kwds)
+ 
+-    def points_of_bounded_height(self,bound):
++    def points_of_bounded_height(self, **kwds):
+         r"""
+         Returns an iterator of the points in this affine space of
+         absolute height of at most the given bound.
+@@ -905,7 +905,11 @@ class AffineSpace_field(AffineSpace_generic):
+ 
+         INPUT:
+ 
+-        - ``bound`` - a real number.
++        - ``bound`` - a real number
++
++        - ``tolerance`` - (default: 0.01) a rational number in (0,1]
++
++        - ``precision`` - (default: 53) a positive integer
+ 
+         OUTPUT:
+ 
+@@ -914,7 +918,7 @@ class AffineSpace_field(AffineSpace_generic):
+         EXAMPLES::
+ 
+             sage: A.<x,y> = AffineSpace(QQ, 2)
+-            sage: list(A.points_of_bounded_height(3))
++            sage: list(A.points_of_bounded_height(bound=3))
+             [(0, 0), (1, 0), (-1, 0), (1/2, 0), (-1/2, 0), (2, 0), (-2, 0), (0, 1),
+             (1, 1), (-1, 1), (1/2, 1), (-1/2, 1), (2, 1), (-2, 1), (0, -1), (1, -1),
+             (-1, -1), (1/2, -1), (-1/2, -1), (2, -1), (-2, -1), (0, 1/2), (1, 1/2),
+@@ -927,7 +931,7 @@ class AffineSpace_field(AffineSpace_generic):
+ 
+             sage: u = QQ['u'].0
+             sage: A.<x,y> = AffineSpace(NumberField(u^2 - 2, 'v'), 2)
+-            sage: len(list(A.points_of_bounded_height(2)))
++            sage: len(list(A.points_of_bounded_height(bound=2)))
+             529
+         """
+         if (is_RationalField(self.base_ring())):
+@@ -936,7 +940,7 @@ class AffineSpace_field(AffineSpace_generic):
+             ftype = True
+         else:
+             raise NotImplementedError("self must be affine space over a number field.")
+-
++        bound = kwds.pop('bound')
+         B = bound**self.base_ring().absolute_degree() # convert to relative height
+ 
+         n = self.dimension_relative()
+@@ -947,7 +951,9 @@ class AffineSpace_field(AffineSpace_generic):
+         if not ftype:
+             iters = [ R.range_by_height(B) for _ in range(n) ]
+         else:
+-            iters = [ R.elements_of_bounded_height(bound=B) for _ in range(n) ]
++            tol = kwds.pop('tolerance', 1e-2)
++            prec = kwds.pop('precision', 53)
++            iters = [ R.elements_of_bounded_height(bound=B, tolerance=tol, precision=prec) for _ in range(n) ]
+         for x in iters: next(x) # put at zero
+         i = 0
+         while i < n:
+@@ -959,7 +965,7 @@ class AffineSpace_field(AffineSpace_generic):
+                 if not ftype:
+                     iters[i] = R.range_by_height(B) # reset
+                 else:
+-                    iters[i] = R.elements_of_bounded_height(bound=B)
++                    iters[i] = R.elements_of_bounded_height(bound=B, tolerance=tol, precision=prec)
+                 next(iters[i]) # put at zero
+                 P[i] = zero
+                 i += 1
+-- 
+2.7.4
+
+
+From f49a685255f16b2cd4e748918a68a00beaa3d2c7 Mon Sep 17 00:00:00 2001
+From: raghukul01 <raghukul.raman01@gmail.com>
+Date: Mon, 11 Jun 2018 20:55:13 +0530
+Subject: [PATCH 18/18] Added keywords for rational_points function
+
+---
+ src/sage/schemes/affine/affine_homset.py           |  2 +-
+ src/sage/schemes/affine/affine_rational_point.py   | 23 +++++++++++++++------
+ src/sage/schemes/affine/affine_space.py            | 15 +++++++++-----
+ src/sage/schemes/projective/projective_homset.py   |  2 +-
+ .../projective/projective_rational_point.py        | 24 +++++++++++++++-------
+ src/sage/schemes/projective/projective_space.py    |  9 +++++---
+ 6 files changed, 52 insertions(+), 23 deletions(-)
+
+diff --git a/src/sage/schemes/affine/affine_homset.py b/src/sage/schemes/affine/affine_homset.py
+index 54bb929..8ce0eb6 100644
+--- a/src/sage/schemes/affine/affine_homset.py
++++ b/src/sage/schemes/affine/affine_homset.py
+@@ -197,7 +197,7 @@ class SchemeHomset_points_affine(sage.schemes.generic.homset.SchemeHomset_points
+             if not B > 0:
+                 raise TypeError("a positive bound B (= %s) must be specified"%B)
+             from sage.schemes.affine.affine_rational_point import enum_affine_number_field
+-            return enum_affine_number_field(self,B)
++            return enum_affine_number_field(self, bound=B)
+         elif is_FiniteField(R):
+             from sage.schemes.affine.affine_rational_point import enum_affine_finite_field
+             return enum_affine_finite_field(self)
+diff --git a/src/sage/schemes/affine/affine_rational_point.py b/src/sage/schemes/affine/affine_rational_point.py
+index e0cf56e..607e2ee 100644
+--- a/src/sage/schemes/affine/affine_rational_point.py
++++ b/src/sage/schemes/affine/affine_rational_point.py
+@@ -152,16 +152,24 @@ def enum_affine_rational_field(X, B):
+     return pts
+ 
+ 
+-def enum_affine_number_field(X, B):
++def enum_affine_number_field(X, **kwds):
+     """
+     Enumerates affine points on scheme ``X`` defined over a number field. Simply checks all of the
+     points of absolute height up to ``B`` and adds those that are on the scheme to the list.
+ 
++    Uses the Doyle-Krumm algorithm for computing algebraic numbers up to a given height
++    [Doyle-Krumm]_. The algorithm requires floating point arithmetic, so the user is allowed
++    to specify the precision for such calculations.
++
+     INPUT:
+ 
+-    - ``X`` - a scheme defined over a number field.
++    kwds:
++
++    - ``bound`` - a real number
++
++    - ``tolerance`` - a rational number in (0,1] used in doyle-krumm algorithm-4
+ 
+-    - ``B`` - a real number.
++    - ``precision`` - the precision to use for computing the elements of bounded height of number fields.
+ 
+     OUTPUT:
+ 
+@@ -175,7 +183,7 @@ def enum_affine_number_field(X, B):
+         sage: K = NumberField(u^2 + 2, 'v')
+         sage: A.<x,y,z> = AffineSpace(K, 3)
+         sage: X = A.subscheme([y^2 - x])
+-        sage: enum_affine_number_field(X(K), 2**0.5)
++        sage: enum_affine_number_field(X(K), bound=2**0.5)
+         [(0, 0, -1), (0, 0, -v), (0, 0, -1/2*v), (0, 0, 0), (0, 0, 1/2*v), (0, 0, v), (0, 0, 1),
+         (1, -1, -1), (1, -1, -v), (1, -1, -1/2*v), (1, -1, 0), (1, -1, 1/2*v), (1, -1, v), (1, -1, 1),
+         (1, 1, -1), (1, 1, -v), (1, 1, -1/2*v), (1, 1, 0), (1, 1, 1/2*v), (1, 1, v), (1, 1, 1)]
+@@ -187,10 +195,13 @@ def enum_affine_number_field(X, B):
+         sage: A.<x,y> = AffineSpace(K, 2)
+         sage: X=A.subscheme(x-y)
+         sage: from sage.schemes.affine.affine_rational_point import enum_affine_number_field
+-        sage: enum_affine_number_field(X, 3**0.25)
++        sage: enum_affine_number_field(X, bound=3**0.25)
+         [(-1, -1), (-1/2*v - 1/2, -1/2*v - 1/2), (1/2*v - 1/2, 1/2*v - 1/2), (0, 0), (-1/2*v + 1/2, -1/2*v + 1/2),
+         (1/2*v + 1/2, 1/2*v + 1/2), (1, 1)]
+     """
++    B = kwds.pop('bound')
++    tol = kwds.pop('tolerance', 1e-2)
++    prec = kwds.pop('precision', 53)
+     from sage.schemes.affine.affine_space import is_AffineSpace
+     if(is_Scheme(X)):
+         if (not is_AffineSpace(X.ambient_space())):
+@@ -203,7 +214,7 @@ def enum_affine_number_field(X, B):
+     R = X.codomain().ambient_space()
+ 
+     pts = []
+-    for P in R.points_of_bounded_height(bound=B):
++    for P in R.points_of_bounded_height(bound=B, tolerance=tol, precision=prec):
+         try:
+             pts.append(X(P))
+         except TypeError:
+diff --git a/src/sage/schemes/affine/affine_space.py b/src/sage/schemes/affine/affine_space.py
+index b7f0170..2194ef9 100644
+--- a/src/sage/schemes/affine/affine_space.py
++++ b/src/sage/schemes/affine/affine_space.py
+@@ -900,16 +900,21 @@ class AffineSpace_field(AffineSpace_generic):
+ 
+         Bound check  is strict for the rational field.
+         Requires this space to be affine space over a number field. Uses the
+-        Doyle-Krumm algorithm for computing algebraic numbers up
+-        to a given height [Doyle-Krumm]_.
++        Doyle-Krumm algorithm for computing algebraic numbers up to a given
++        height [Doyle-Krumm]_.
++
++        The algorithm requires floating point arithmetic, so the user is
++        allowed to specify the precision for such calculations.
+ 
+         INPUT:
+ 
++        kwds:
++
+         - ``bound`` - a real number
+ 
+-        - ``tolerance`` - (default: 0.01) a rational number in (0,1]
++        - ``tolerance`` - a rational number in (0,1] used in doyle-krumm algorithm-4
+ 
+-        - ``precision`` - (default: 53) a positive integer
++        - ``precision`` - the precision to use for computing the elements of bounded height of number fields
+ 
+         OUTPUT:
+ 
+@@ -931,7 +936,7 @@ class AffineSpace_field(AffineSpace_generic):
+ 
+             sage: u = QQ['u'].0
+             sage: A.<x,y> = AffineSpace(NumberField(u^2 - 2, 'v'), 2)
+-            sage: len(list(A.points_of_bounded_height(bound=2)))
++            sage: len(list(A.points_of_bounded_height(bound=2, tolerance=0.1)))
+             529
+         """
+         if (is_RationalField(self.base_ring())):
+diff --git a/src/sage/schemes/projective/projective_homset.py b/src/sage/schemes/projective/projective_homset.py
+index e740f65..91f671d 100644
+--- a/src/sage/schemes/projective/projective_homset.py
++++ b/src/sage/schemes/projective/projective_homset.py
+@@ -186,7 +186,7 @@ class SchemeHomset_points_projective_field(SchemeHomset_points):
+             if not B > 0:
+                 raise TypeError("a positive bound B (= %s) must be specified"%B)
+             from sage.schemes.projective.projective_rational_point import enum_projective_number_field
+-            return enum_projective_number_field(self,B, prec=prec)
++            return enum_projective_number_field(self, bound=B, precision=prec)
+         elif is_FiniteField(R):
+             from sage.schemes.projective.projective_rational_point import enum_projective_finite_field
+             return enum_projective_finite_field(self.extended_codomain())
+diff --git a/src/sage/schemes/projective/projective_rational_point.py b/src/sage/schemes/projective/projective_rational_point.py
+index 9cb97a9..bc177bc 100644
+--- a/src/sage/schemes/projective/projective_rational_point.py
++++ b/src/sage/schemes/projective/projective_rational_point.py
+@@ -140,20 +140,27 @@ def enum_projective_rational_field(X,B):
+     return pts
+ 
+ 
+-def enum_projective_number_field(X,B, prec=53):
++def enum_projective_number_field(X, **kwds):
+     """
+     Enumerates projective points on scheme ``X`` defined over a number field.
+ 
+     Simply checks all of the points of absolute height of at most ``B``
+     and adds those that are on the scheme to the list.
+ 
++    Uses the Doyle-Krumm algorithm for computing algebraic numbers up to
++    a given height [Doyle-Krumm]_. The algorithm requires floating point
++    arithmetic, so the user is allowed to specify the precision for such
++    calculations.
++
+     INPUT:
+ 
+-    - ``X`` - a scheme defined over a number field.
++    kwds:
++
++    - ``bound`` - a real number
+ 
+-    - ``B`` - a real number.
++    - ``tolerance`` - a rational number in (0,1] used in doyle-krumm algorithm-4
+ 
+-    - ``prec`` - the precision to use for computing the elements of bounded height of number fields.
++    - ``precision`` - the precision to use for computing the elements of bounded height of number fields.
+ 
+     OUTPUT:
+ 
+@@ -167,7 +174,7 @@ def enum_projective_number_field(X,B, prec=53):
+         sage: K = NumberField(u^3 - 5,'v')
+         sage: P.<x,y,z> = ProjectiveSpace(K, 2)
+         sage: X = P.subscheme([x - y])
+-        sage: enum_projective_number_field(X(K), 5^(1/3), prec=2^10)
++        sage: enum_projective_number_field(X(K), bound=5^(1/3), prec=2^10)
+         [(0 : 0 : 1), (-1 : -1 : 1), (1 : 1 : 1), (-1/5*v^2 : -1/5*v^2 : 1), (-v : -v : 1),
+         (1/5*v^2 : 1/5*v^2 : 1), (v : v : 1), (1 : 1 : 0)]
+ 
+@@ -178,9 +185,12 @@ def enum_projective_number_field(X,B, prec=53):
+         sage: A.<x,y> = ProjectiveSpace(K,1)
+         sage: X = A.subscheme(x-y)
+         sage: from sage.schemes.projective.projective_rational_point import enum_projective_number_field
+-        sage: enum_projective_number_field(X, 2)
++        sage: enum_projective_number_field(X, bound=2)
+         [(1 : 1)]
+     """
++    B = kwds.pop('bound')
++    tol = kwds.pop('tolerance', 1e-2)
++    prec = kwds.pop('precision', 53)
+     from sage.schemes.projective.projective_space import is_ProjectiveSpace
+     if(is_Scheme(X)):
+         if (not is_ProjectiveSpace(X.ambient_space())):
+@@ -194,7 +204,7 @@ def enum_projective_number_field(X,B, prec=53):
+ 
+     pts = []
+ 
+-    for P in R.points_of_bounded_height(bound=B, precision=prec):
++    for P in R.points_of_bounded_height(bound=B, tolerance=tol, precision=prec):
+         try:
+             pts.append(X(P))
+         except TypeError:
+diff --git a/src/sage/schemes/projective/projective_space.py b/src/sage/schemes/projective/projective_space.py
+index f47f8af..483b0a0 100644
+--- a/src/sage/schemes/projective/projective_space.py
++++ b/src/sage/schemes/projective/projective_space.py
+@@ -1275,15 +1275,18 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+         over a number field. Uses the Doyle-Krumm algorithm for computing algebraic numbers
+         up to a given height [Doyle-Krumm]_.
+ 
++        The algorithm requires floating point arithmetic, so the user is allowed to specify
++        the precision for such calculations.
++
+         INPUT:
+ 
+         kwds:
+ 
+         - ``bound`` - a real number
+ 
+-        - ``tolerance`` - (default: 0.01) a rational number in (0,1]
++        - ``tolerance`` - a rational number in (0,1] used in doyle-krumm algorithm-4
+ 
+-        - ``precision`` - (default: 53) a positive integer
++        - ``precision`` - the precision to use for computing the elements of bounded height of number fields.
+ 
+         OUTPUT:
+ 
+@@ -1301,7 +1304,7 @@ class ProjectiveSpace_field(ProjectiveSpace_ring):
+ 
+             sage: u = QQ['u'].0
+             sage: P.<x,y,z> = ProjectiveSpace(NumberField(u^2 - 2, 'v'), 2)
+-            sage: len(list(P.points_of_bounded_height(bound=1.5)))
++            sage: len(list(P.points_of_bounded_height(bound=1.5, tolerance=0.1)))
+             57
+         """
+         if (is_RationalField(self.base_ring())):
+-- 
+2.7.4
+
